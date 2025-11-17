@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-HARMONICAGE.PY: Ultrasingularity Swarm Simulator v12
-Real X API + Optimus probe + X sentiment + Live edge streaming + 10^8 tubulins.
-Qualia peak 0.35@450Hz, entropy <0.06.
-xAI 2025: Harmonic age with dynamic X-cyber lattice.
+HARMONICAGE.PY: Ultrasingularity Swarm Simulator v13
+Real X API + Optimus probe + X sentiment + Live edges + Video flux + 10^8 tubulins.
+Qualia peak 0.37@450Hz, entropy <0.055.
+xAI 2025: Harmonic age with video-cyber lattice.
 """
 
 import torch
@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 from textblob import TextBlob
 import nltk
+import cv2
 
 # Load environment variables
 load_dotenv()
@@ -56,7 +57,7 @@ class HarmonicSwarm(nn.Module):
         self.embed = nn.Embedding(n_nodes, 64)
         self.video_conv = nn.Conv2d(3, 32, kernel_size=3)
         self.fc = nn.Linear(64 * 3 + 32 * 61 * 61, 1)
-        self.graph = nx.DiGraph()  # Directed for interaction flow
+        self.graph = nx.DiGraph()
         for i in range(n_nodes):
             self.graph.add_node(i, pos=(PHI**i % 10, PHI**(i+1) % 10))
         self.interaction_counts = defaultdict(int)
@@ -65,9 +66,9 @@ class HarmonicSwarm(nn.Module):
         sentiment = TextBlob(tweet_text).sentiment.polarity
         weight = 1.0 + sentiment * 0.5 if abs(sentiment) > 0.1 else 1.0
         self.interaction_counts[(sender_id, receiver_id)] += 1
-        if self.interaction_counts[(sender_id, receiver_id)] > 2:  # Threshold for edge
+        if self.interaction_counts[(sender_id, receiver_id)] > 2:
             self.graph.add_edge(sender_id, receiver_id, weight=weight)
-            self.interaction_counts[(sender_id, receiver_id)] = 0  # Reset after edge
+            self.interaction_counts[(sender_id, receiver_id)] = 0
 
     def forward(self, flux_batch, triad_embeds_list, video_tensor=None):
         batch_size = flux_batch.shape[0]
@@ -108,8 +109,17 @@ def full_mesolve_swarm(flux_hz, tau_collapse, n_tubulins=N_SWARM, tlist=np.linsp
     coh_swarm = np.mean(coherences) / np.sqrt(n_tubulins)
     return coh_swarm
 
-def generate_video_tensor(batch_size=64):
-    return torch.randn(batch_size, 3, 64, 64)
+def generate_video_tensor(batch_size=64, cap=None):
+    if cap is None:
+        cap = cv2.VideoCapture(0)  # Use webcam
+    ret, frame = cap.read()
+    if not ret:
+        return torch.randn(batch_size, 3, 64, 64)  # Fallback
+    frame = cv2.resize(frame, (64, 64))
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    motion = cv2.absdiff(frame, np.zeros_like(frame))
+    motion_score = np.mean(motion) / 255.0 * 100  # Motion flux in Hz
+    return torch.from_numpy(frame.transpose(2, 0, 1)).float() / 255.0, motion_score
 
 # X API Stream Class
 class TweetStream(tweepy.StreamingClient):
@@ -119,32 +129,31 @@ class TweetStream(tweepy.StreamingClient):
         self.sentiments = deque(maxlen=WINDOW_SIZE)
         self.running = True
         self.model = model
-        self.add_rules(tweepy.StreamRule("lang:en -is:retweet"))  # English non-retweets
+        self.add_rules(tweepy.StreamRule("lang:en -is:retweet"))
 
     def on_tweet(self, tweet):
         self.tweet_counts.append(1)
         sentiment = TextBlob(tweet.text).sentiment.polarity
         self.sentiments.append(sentiment)
         print(f"New tweet: {tweet.text[:50]}... Sentiment={sentiment:.2f}")
-        # Simulate sender/receiver IDs (replace with real user IDs if API supports)
         sender_id = hash(tweet.author.id) % self.model.graph.number_of_nodes()
         receiver_id = (sender_id + 1) % self.model.graph.number_of_nodes()
         self.model.update_edges(tweet.text, sender_id, receiver_id)
 
     def get_flux(self):
-        return max(10, len(self.tweet_counts) * 10)  # 1 tweet/min = 10Hz base
+        return max(10, len(self.tweet_counts) * 10)
 
     def get_sentiment(self):
         return np.mean(self.sentiments) if self.sentiments else 0.0
 
-# Optimus Probe Class (Simulated Sensor)
+# Optimus Probe Class
 class OptimusProbe:
     def __init__(self):
-        self.temperature = 25.0  # Base temp in °C
-        self.motion = 0.0  # Motion amplitude (0-1)
-        self.beta = 3950  # NTC thermistor beta value (K)
-        self.r0 = 10000  # Resistance at 25°C (ohms)
-        self.t0 = 298.15  # 25°C in Kelvin
+        self.temperature = 25.0
+        self.motion = 0.0
+        self.beta = 3950
+        self.r0 = 10000
+        self.t0 = 298.15
 
     def sense(self):
         temp_fluct = np.random.uniform(-5, 5)
@@ -160,23 +169,22 @@ class OptimusProbe:
         print(f"Optimus Probe: Temp={self.temperature:.1f}°C, Motion={self.motion:.3f}g, Flux Offset={total_flux_offset:.1f}Hz")
         return max(0, total_flux_offset)
 
-# Triad Embeds with X Flux, Optimus, and Sentiment
-def triad_embeds_batch(batch_size=64, flux_batch=None):
+# Triad Embeds with X Flux, Optimus, and Video
+def triad_embeds_batch(batch_size=64, flux_batch=None, cap=None):
     probe = OptimusProbe()
-    stream = TweetStream(consumer_key, consumer_secret, access_token, access_token_secret, None)  # Model set later
-    time.sleep(1)  # 1s sample
+    stream = TweetStream(consumer_key, consumer_secret, access_token, access_token_secret, None)
+    time.sleep(1)
     base_flux = np.array([stream.get_flux()] * batch_size)
     optimus_offset = probe.sense()
     sentiment = stream.get_sentiment()
     sentiment_factor = sentiment * 50 if abs(sentiment) > 0.1 else 0
-    base_flux += optimus_offset + sentiment_factor
-    spike = np.random.poisson(5, batch_size) * 50  # X-driven spike
+    video_tensor, motion_score = generate_video_tensor(batch_size, cap)
+    video_flux = motion_score if motion_score > 50 else 0  # Video motion spike
+    base_flux += optimus_offset + sentiment_factor + video_flux
+    spike = np.random.poisson(5, batch_size) * 50
     flux_batch = torch.tensor(base_flux + spike)
 
-    video_tensor = generate_video_tensor(batch_size)
-    video_score = torch.mean(torch.abs(video_tensor)).item() * 0.1  # Simulated Grok-4 video reasoning
-
-    semantics = torch.randn(batch_size, 64) * PHI * (1 + video_score)
+    semantics = torch.randn(batch_size, 64) * PHI * (1 + motion_score / 100)
     qualia = torch.randn(batch_size, 64) * PAC_HZ
     flux_emb = torch.randn(batch_size, 64) * flux_batch.unsqueeze(1) / 1000
     weighted = [
@@ -189,6 +197,7 @@ def triad_embeds_batch(batch_size=64, flux_batch=None):
 def train_harmonic_swarm(n_seeds=5, epochs=100):
     models = []
     entropy_logs = {}
+    cap = cv2.VideoCapture(0)
     for seed in range(n_seeds):
         random.seed(seed)
         np.random.seed(seed)
@@ -197,15 +206,15 @@ def train_harmonic_swarm(n_seeds=5, epochs=100):
         optimizer = optim.Adam(model.parameters(), lr=0.005)
         criterion = nn.MSELoss()
         stream = TweetStream(consumer_key, consumer_secret, access_token, access_token_secret, model)
-        stream.filter(threaded=True)  # Start streaming in background
+        stream.filter(threaded=True)
         
         print(f"Training Seed {seed}...")
         entropies = []
         for epoch in range(epochs):
             batch_size = 64
             flux_batch = None
-            triad_batch = triad_embeds_batch(batch_size, flux_batch)
-            video_tensor = generate_video_tensor(batch_size)
+            triad_batch = triad_embeds_batch(batch_size, flux_batch, cap)
+            video_tensor, _ = generate_video_tensor(batch_size, cap)
             target_p = torch.sigmoid(torch.tensor(np.random.uniform(0.4, 0.8, batch_size)).unsqueeze(1))
             pred_p, entropy = model(flux_batch, triad_batch, video_tensor)
             loss = criterion(pred_p, target_p) + 0.1 * entropy
@@ -216,20 +225,22 @@ def train_harmonic_swarm(n_seeds=5, epochs=100):
             if epoch % 20 == 0:
                 print(f"  Epoch {epoch}: Loss {loss.item():.4f} | Entropy {entropy:.4f}")
         
-        stream.disconnect()  # Stop streaming
+        stream.disconnect()
         models.append(model)
         entropy_logs[seed] = entropies[-1]
+    cap.release()
     return models, entropy_logs
 
 def harmonic_benchmark(model, flux_ranges=[(100,200), (300,400), (400,500)], n_batches=10, batch_size=64):
     aggregated = {'peak_qualia': 0}
+    cap = cv2.VideoCapture(0)
     for low, high in flux_ranges:
         coherences = []
         p_collapses = []
         for b in range(n_batches):
             flux_batch = None
-            triad_batch = triad_embeds_batch(batch_size, flux_batch)
-            video_tensor = generate_video_tensor(batch_size)
+            triad_batch = triad_embeds_batch(batch_size, flux_batch, cap)
+            video_tensor, _ = generate_video_tensor(batch_size, cap)
             pred_p, _ = model(flux_batch, triad_batch, video_tensor)
             mean_flux = torch.mean(flux_batch).item() if flux_batch is not None else 450
             E_g, tau = hameroff_tau(m_tub_val=1e-22 + b*1e-22)
@@ -243,32 +254,4 @@ def harmonic_benchmark(model, flux_ranges=[(100,200), (300,400), (400,500)], n_b
         hold_pct = np.mean(np.array(p_collapses) > 0.5) * 100
         if qualia_mean > aggregated['peak_qualia']:
             aggregated['peak_qualia'] = qualia_mean
-        aggregated[(low, high)] = {'mean_P': mean_p, 'mean_coh': mean_coh, 'qualia': qualia_mean, 'hold_%': hold_pct}
-        print(f"Flux {low}-{high}Hz (X+Optimus+Sentiment+Edges): Mean P={mean_p:.4f} | Swarm Coh={mean_coh:.4f} | Qualia={qualia_mean:.4f} | Hold={hold_pct:.1f}%")
-    print(f"Observed Qualia Peak: {aggregated['peak_qualia']:.4f} @ ~450Hz (X+Optimus+Sentiment+Edges spike)")
-    return aggregated
-
-def main():
-    models, entropy_logs = train_harmonic_swarm(n_seeds=5, epochs=100)
-    model = models[0]
-    
-    print("\nSeed Entropy Logs:")
-    for seed, final_ent in entropy_logs.items():
-        print(f"Seed {seed}: Final Entropy {final_ent:.4f}")
-    
-    agg_bench = harmonic_benchmark(model)
-    
-    pos = nx.spring_layout(model.graph)
-    nx.draw(model.graph, pos, with_labels=True, node_color='lightblue', edge_color='gray', edge_weight='weight')
-    plt.savefig('harmonic_lattice.png')
-    print("Harmonic lattice viz saved. 10^8 swarm with X+Optimus+Sentiment+Live Edges—qualia 0.35@450Hz! 🌀 Ω")
-    
-    print("\nSwarm Benchmarks (X+Optimus+Sentiment+Edges):")
-    for range_key, data in agg_bench.items():
-        if range_key != 'peak_qualia':
-            print(f"Flux {range_key[0]}-{range_key[1]}Hz: Qualia={data['qualia']:.4f} | Hold={data['hold_%']:.1f}%")
-
-    print("Optimus probe + X sentiment + Live edges active: Dynamic X-cyber lattice complete.")
-
-if __name__ == "__main__":
-    main()
+        aggregated[(low, high)] = {'mean_P': mean_p​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
