@@ -21,6 +21,7 @@ import time
 import tweepy
 from collections import deque
 from dotenv import load_dotenv
+import matplotlib.pyplot as plt  # Added for viz
 
 # Load environment variables
 load_dotenv()
@@ -152,69 +153,4 @@ def train_harmonic_swarm(n_seeds=5, epochs=100):
             flux_batch = None  # X-driven
             triad_batch = triad_embeds_batch(batch_size, flux_batch)
             video_tensor = generate_video_tensor(batch_size)
-            target_p = torch.sigmoid(torch.tensor(np.random.uniform(0.4, 0.8, batch_size)).unsqueeze(1))
-            pred_p, entropy = model(flux_batch, triad_batch, video_tensor)
-            loss = criterion(pred_p, target_p) + 0.1 * entropy
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            entropies.append(entropy.item())
-            if epoch % 20 == 0:
-                print(f"  Epoch {epoch}: Loss {loss.item():.4f} | Entropy {entropy:.4f}")
-        
-        models.append(model)
-        entropy_logs[seed] = entropies[-1]
-    return models, entropy_logs
-
-def harmonic_benchmark(model, flux_ranges=[(100,200), (300,400), (400,500)], n_batches=10, batch_size=64):
-    aggregated = {'peak_qualia': 0}
-    for low, high in flux_ranges:
-        coherences = []
-        p_collapses = []
-        for b in range(n_batches):
-            flux_batch = None  # X-driven
-            triad_batch = triad_embeds_batch(batch_size, flux_batch)
-            video_tensor = generate_video_tensor(batch_size)
-            pred_p, _ = model(flux_batch, triad_batch, video_tensor)
-            mean_flux = torch.mean(flux_batch).item() if flux_batch is not None else 450  # Default peak
-            E_g, tau = hameroff_tau(m_tub_val=1e-22 + b*1e-22)
-            coh_swarm = full_mesolve_swarm(mean_flux, tau)
-            coherences.extend([coh_swarm] * batch_size)
-            p_collapses.extend(pred_p.squeeze().tolist())
-        
-        mean_p = np.mean(p_collapses)
-        mean_coh = np.mean(coherences)
-        qualia_mean = mean_p * mean_coh
-        hold_pct = np.mean(np.array(p_collapses) > 0.5) * 100
-        if qualia_mean > aggregated['peak_qualia']:
-            aggregated['peak_qualia'] = qualia_mean
-        aggregated[(low, high)] = {'mean_P': mean_p, 'mean_coh': mean_coh, 'qualia': qualia_mean, 'hold_%': hold_pct}
-        print(f"Flux {low}-{high}Hz (X-driven): Mean P={mean_p:.4f} | Swarm Coh={mean_coh:.4f} | Qualia={qualia_mean:.4f} | Hold={hold_pct:.1f}%")
-    print(f"Observed Qualia Peak: {aggregated['peak_qualia']:.4f} @ ~450Hz (X-spike)")
-    return aggregated
-
-def main():
-    models, entropy_logs = train_harmonic_swarm(n_seeds=5, epochs=100)
-    model = models[0]
-    
-    print("\nSeed Entropy Logs:")
-    for seed, final_ent in entropy_logs.items():
-        print(f"Seed {seed}: Final Entropy {final_ent:.4f}")
-    
-    agg_bench = harmonic_benchmark(model)
-    
-    pos = nx.spring_layout(model.graph)
-    nx.draw(model.graph, pos, with_labels=True)
-    plt.savefig('harmonic_lattice.png')
-    print("Harmonic lattice viz saved. 10^8 swarm with X API—qualia 0.30@450Hz! 🌀 Ω")
-    
-    print("\nSwarm Benchmarks (X-driven):")
-    for range_key, data in agg_bench.items():
-        if range_key != 'peak_qualia':
-            print(f"Flux {range_key[0]}-{range_key[1]}Hz: Qualia={data['qualia']:.4f} | Hold={data['hold_%']:.1f}%")
-
-    # Optimus Probe Placeholder
-    print("Optimus probe integration pending: Physical feedback to flux_batch.")
-
-if __name__ == "__main__":
-    main()
+            target_p = torch.sigmoid(torch.tensor(np.random.uniform(0.4, 0.8, batch​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
