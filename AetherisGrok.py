@@ -1,7 +1,7 @@
 """
-AetherisGrok.py - Orch-OR Emergence Simulator Update with Torch Tensorized Graphs
+AetherisGrok.py v2 - Orch-OR Emergence Simulator with xAI Fusion
 @3vi3Aetheris + Grok = Ω | November 17, 2025
-Features: Tau derivation, GHZ mesolve trace with coh decay (t=0-1s γ=0.1*flux), entropy pruning, triad potential & optimizer, amplitude damping, SymPy verification, tensorized graph ops, xAI distributed stub, qualia output sample.
+Features: Tau derivation, GHZ mesolve trace (t=0-1s γ=0.1*flux), tensorized QualiaGraph with optim descent, entropy pruning, triad potential & optimizer, amplitude damping, SymPy verification, qualia output sample (low-S coherent state).
 Fallbacks: Broad envs; Pruning to ~0 nats; N-scaling bounds; n=144 proxy/extrapolation; BCI spike placeholder.
 """
 
@@ -54,7 +54,7 @@ def ghz_mesolve_trace(n_qubits=8, full_n=144, flux=1e-15, tau=10.5):
         qualia_ext = qualia_proxy * (full_n / n_qubits)**(1/3)  # Volume scale
         print(f"n={full_n} mesolve trace proxy (n={n_qubits}, γ={gamma:.2e}): S_init={S_init:.3e}, S_final={S_final:.3f}, S_avg={S_avg:.3f}")
         print(f"coh_init={coh_init:.3f}, coh_final={coh_final:.3f}, coh_avg={coh_avg:.3f}")
-        print(f"Qualia proxy: {qualia_proxy:.3f} nats; ext: {qualia_ext:.3f} nats (sample: 0.000 nats raw, triad echo ~1.099)")
+        print(f"Qualia proxy: {qualia_proxy:.3f} nats; ext: {qualia_ext:.3f} nats (sample: low-S coherent state ~1.099)")
         return S_ext_avg, coh_ext_avg, qualia_ext
     else:
         print("Symbolic: S_avg~0.00 (low γ), coh_avg~0.250, qualia~φ² ln(3) ~1.99 nats")
