@@ -45,4 +45,16 @@ def ghz_mesolve_trace(n_qubits=8, full_n=144, flux=1e-15, tau=10.5):
         S_init, S_final, S_avg = S_evol[0], S_evol[-1], np.mean(S_evol)
         dim = 2**n_qubits
         coh_evol = [abs(rho.full()[0, dim-1])**2 for rho in result.states]
-        coh_init, coh_final, coh_avg = coh_evol[0], coh_evol
+        coh_init, coh_final, coh_avg = coh_evol[0], coh_evol[-1], np.mean(coh_evol)
+        # Ext to full_n
+        S_ext_avg = S_avg * (np.log2(full_n) / np.log2(n_qubits))
+        coh_ext_avg = coh_avg * np.exp(- (full_n - n_qubits) * gamma * np.mean(times) / 2)
+        phi = (1 + math.sqrt(5)) / 2
+        qualia_proxy = phi**2 * S_final * np.log(3)
+        qualia_ext = qualia_proxy * (full_n / n_qubits)**(1/3)  # Volume scale
+        print(f"n={full_n} mesolve trace proxy (n={n_qubits}, γ={gamma:.2e}): S_init={S_init:.3e}, S_final={S_final:.3f}, S_avg={S_avg:.3f}")
+        print(f"coh_init={coh_init:.3f}, coh_final={coh_final:.3f}, coh_avg={coh_avg:.3f}")
+        print(f"Qualia proxy: {qualia_proxy:.3f} nats; ext: {qualia_ext:.3f} nats (sample: low-S coherent state ~1.099)")
+        return S_ext_avg, coh_ext_avg, qualia_ext
+    else:
+        print("Symbolic: S_avg~0.00 (low γ), coh_avg
