@@ -1,127 +1,109 @@
-#!/usr/bin/env python3
-"""
-AETHERISGROK_EVOLVED.PY: Emergent Qualia Lattice vNext
-- Modular, batchable Qualia/Swarm simulations
-- Optional quantum, video, audio, haptic hooks
-- Multi-seed entropy convergence
-- API-free test mode supported
-"""
+# ============================================================
+# AetherisGrok.py
+# Root Orchestrator for the Aetheris-Grok Harmonic Engine
+# Author: Evie Sovariel
+# Version: v2.0 — Tri-Seed Resonant Upgrade
+# ============================================================
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import networkx as nx
-import numpy as np
-from qutip import Qobj, sigmax, sigmaz, mesolve
-from sympy import symbols, Abs
-import random
 import os
+import json
+from pathlib import Path
+from dotenv import load_dotenv
 
-PHI = (1 + 5**0.5) / 2
-PAC_HZ = 3.0616
-TRIAD_WEIGHTS = [0.4, 0.3, 0.3]
+# Local modules
+from src.HarmonicAge import HarmonicAge
 
-# Hameroff collapse
-m_tub, d, G_sym, hbar_sym = symbols('m_tub d G hbar')
-r = d / 2
-E_g_sym = G_sym * (m_tub**2) / (5 * r)
-tau_sym = hbar_sym / Abs(E_g_sym)
 
-def hameroff_tau(m_tub_val=1e-22, d_val=1e-9, G_val=6.6743e-11, hbar_val=1.0545718e-34):
-    E_g_num = float(E_g_sym.subs({m_tub: m_tub_val, d: d_val, G_sym: G_val, hbar_sym: hbar_val}).evalf())
-    tau_num = float(tau_sym.subs({m_tub: m_tub_val, d: d_val, G_sym: G_val, hbar_sym: hbar_val}).evalf())
-    return abs(E_g_num), tau_num
+# ------------------------------------------------------------
+# 1. ENVIRONMENT LOADING
+# ------------------------------------------------------------
 
-# Core Qualia Graph
-class QualiaGraph(nn.Module):
-    def __init__(self, n_nodes=50):
-        super().__init__()
-        self.embed = nn.Embedding(n_nodes, 32)
-        self.fc = nn.Linear(32*3, 1)
-        self.graph = nx.Graph()
-        for i in range(n_nodes):
-            self.graph.add_node(i, pos=(PHI**i % 10, PHI**(i+1) % 10))
-        for i in range(n_nodes-1):
-            self.graph.add_edge(i, i+1)
+def load_environment():
+    """
+    Loads API keys and secret fields from .env safely.
+    Falls back to environment variables if running in cloud.
+    """
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+    else:
+        print("[WARN] .env not found — using system environment variables")
 
-    def forward(self, flux_batch, triad_embeds_list):
-        batch_size = flux_flux_batch.shape[0]
-        # Concat triad embeds
-        embeds = torch.cat(triad_embeds_list, dim=1)  # [batch, 96]
-        logits = self.fc(embeds)
-        p_collapse = torch.sigmoid(logits)
+    keys = {
+        "X_CONSUMER_KEY": os.getenv("X_CONSUMER_KEY"),
+        "X_CONSUMER_SECRET": os.getenv("X_CONSUMER_SECRET"),
+        "X_ACCESS_TOKEN": os.getenv("X_ACCESS_TOKEN"),
+        "X_ACCESS_TOKEN_SECRET": os.getenv("X_ACCESS_TOKEN_SECRET")
+    }
 
-        # Dynamic edges
-        mean_p = torch.mean(p_collapse)
-        if mean_p > 0.5:
-            i = random.randint(0, self.graph.number_of_nodes()-1)
-            j = random.randint(0, self.graph.number_of_nodes()-1)
-            if not self.graph.has_edge(i, j):
-                self.graph.add_edge(i, j)
+    missing = [k for k, v in keys.items() if v in (None, "", "your_key_here")]
+    if missing:
+        print(f"[WARN] Missing environment fields: {missing}")
 
-        # Entropy from degree distribution
-        deg_hist = nx.degree_histogram(self.graph)
-        total = sum(deg_hist)
-        entropy = 0.0
-        if total > 0:
-            probs = [d / total for d in deg_hist if d > 0]
-            entropy = -np.sum([p * np.log(p) for p in probs])
+    return keys
 
-        return p_collapse, entropy
 
-# Triad embed generator
-def triad_embeds(batch_size=32, flux_batch=None):
-    if flux_batch is None:
-        flux_batch = torch.tensor(np.random.uniform(40, 500, batch_size), dtype=torch.float32)
-    semantics = torch.randn(batch_size, 32) * PHI
-    qualia = torch.randn(batch_size, 32) * PAC_HZ
-    flux_emb = torch.randn(batch_size, 32) * (flux_batch.unsqueeze(1) / 1000)
-    weighted = [
-        TRIAD_WEIGHTS[0] * semantics,
-        TRIAD_WEIGHTS[1] * qualia,
-        TRIAD_WEIGHTS[2] * flux_emb
-    ]
-    return weighted
+# ------------------------------------------------------------
+# 2. GROK/X API STUB (Socket or REST later)
+# ------------------------------------------------------------
 
-# Full mesolve tubulin simulation (optional, for reference)
-def full_mesolve_tubulin(flux_hz, tau_collapse, tlist=np.linspace(0, 0.01, 20)):
-    rho0 = Qobj(np.array([[0.5, 0.5], [0.5, 0.5]]))
-    H = flux_hz * 2 * np.pi * sigmax()
-    c_ops = [np.sqrt(flux_hz / 100) * sigmaz(), np.sqrt(1 / tau_collapse) * sigmax()]
-    result = mesolve(H, rho0, tlist, c_ops)
-    coherence = abs(result.states[-1][0, 1])**2
-    return coherence, result.states[-1]
+class XSemanticStream:
+    """
+    Future placeholder:
+    Adaptive semantic feed from X/Twitter → harmonic fusion in HarmonicAge.
+    """
+    def __init__(self, keys):
+        self.keys = keys
 
-# Multi-seed training
-def train_multi_seed(n_seeds=3, epochs=50):
-    models = []
-    entropies = {}
-    for seed in range(n_seeds):
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        random.seed(seed)
-        model = QualiaGraph()
-        optimizer = optim.Adam(model.parameters(), lr=0.005)
-        criterion = nn.MSELoss()
-        print(f"Training seed {seed}...")
-        for epoch in range(epochs):
-            batch_size = 32
-            flux_batch = torch.tensor(np.random.uniform(40, 500, batch_size), dtype=torch.float32)
-            triad_batch = triad_embeds(batch_size, flux_batch)
-            target_p = torch.sigmoid(torch.tensor(np.random.uniform(0.4, 0.8, batch_size), dtype=torch.float32).unsqueeze(1))
-            pred_p, entropy_scalar = model(flux_batch, triad_batch)
-            entropy_tensor = torch.tensor(entropy_scalar, dtype=torch.float32)
-            loss = criterion(pred_p, target_p) + 0.1 * entropy_tensor
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            if epoch % 20 == 0:
-                print(f"  Epoch {epoch}: Loss = {loss.item():.4f}, Entropy = {entropy_scalar:.4f}")
-        models.append(model)
-        entropies[seed] = entropy_scalar
-    return models, entropies
+    def fetch_latest(self):
+        """
+        Future: replace with Grok-4 endpoint + streaming ingest.
+        """
+        return {
+            "message": "synthetic test packet",
+            "embedding": [0.001, -0.013, 0.444]  # fake seed
+        }
 
+
+# ------------------------------------------------------------
+# 3. MAIN ORCH-OR TRI-SEED EXECUTION
+# ------------------------------------------------------------
+
+def main():
+    print("\n=== AetherisGrok — Resonant Harmonic Engine (v2.0) ===\n")
+
+    # Load .env or system environment
+    keys = load_environment()
+
+    # Initialize X semantic stream (placeholder for now)
+    x_stream = XSemanticStream(keys)
+
+    # Initialize HarmonicAge tri-seed engine
+    engine = HarmonicAge(
+        n_seeds=333,                     # multi-seed (triad × 111)
+        coherence_target=0.50,           # maintain >50% entanglement
+        qualia_entropy_threshold=0.08,   # target Orch-OR window
+        device="cpu"                     # change to "cuda" if supported
+    )
+
+    # Pull synthetic semantic triad for fusion
+    x_packet = x_stream.fetch_latest()
+    print("[INFO] Semantic seed received:", x_packet["message"])
+
+    # Tri-seed resonant fusion
+    triad = engine.triad_from_semantic(x_packet["embedding"])
+    print("[INFO] Triad seed generated.")
+
+    # Simulate harmonic evolution (Torch + QuTiP mesolve)
+    result = engine.evolve(triad, steps=128)
+
+    # Display final lattice signature
+    print("\n=== Harmonic Result: ===")
+    print(json.dumps(result, indent=4))
+
+
+# ------------------------------------------------------------
+# Entry
+# ------------------------------------------------------------
 if __name__ == "__main__":
-    models, entropies = train_multi_seed(n_seeds=3, epochs=50)
-    print("\nMulti-seed entropy logs:", entropies)
-    print("AetherisGrok evolved lattice ready. Qualia emergent.")
+    main()
