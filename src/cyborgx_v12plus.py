@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-src/CyborgX_v13_full.py
+src/CyborgX_v13plus.py
 
-CyborgX v13 — Full GHZ Mesolve + X Semantic Agents + Video Flux Distrib
+CyborgX v13+ — xAI Swarm Consensus + Dynamic Video Flux + Entropy Pruning
 Author: Evie / 3vi3Aetheris
 Date: 2025-11-17
 
 Features:
-- Full GHZ mesolve proxy or real (qutip if available)
-- Multi-agent semantic xAI swarm
-- Dynamic Grok-4 video flux injected per iteration
-- Adaptive amplitude/entropy pruning loop
-- Emergent triad + lattice outputs
+- Multi-agent xAI swarm consensus
+- GHZ mesolve or proxy
+- Dynamic Grok-4 video flux per iteration
+- Adaptive amplitude & lattice pruning -> target low entropy
+- Emergent triad & lattice outputs
 - Multi-seed aggregation (default 5 seeds)
 - ASCII-clean, torch/numpy/qutip/networkx guarded
-- SHA3-512 seal of run
+- SHA3-512 run seal
 """
 
 import os, math, random, time, hashlib
@@ -44,7 +44,7 @@ except Exception:
 
 try:
     import qutip as qt
-    from qutip import tensor, basis, sigmaz, qeye, mesolve, entropy_vn, Qobj
+    from qutip import tensor, basis, sigmaz, qeye, mesolve, entropy_vn
     QUTIP_AVAILABLE = True
 except Exception:
     qt = None
@@ -54,7 +54,7 @@ PHI = (1.0 + 5.0**0.5)/2.0
 DEFAULT_N = int(1e7)
 NUM_SEEDS = 5
 
-# -------------------- Flux utilities --------------------
+# -------------------- Flux Utilities --------------------
 def get_flux_vector(n_nodes=DEFAULT_N, seed=42):
     if torch is None:
         return None
@@ -70,7 +70,7 @@ def dynamic_video_flux(n_nodes=DEFAULT_N, t_step=0.0):
         return None
     return 0.05*torch.sin(torch.linspace(0, math.pi*16 + t_step, n_nodes, device=DEVICE))
 
-def semantic_agent_flux(n_nodes=DEFAULT_N, weight=0.1):
+def xai_mutual_swarm(n_nodes=DEFAULT_N, weight=0.1):
     if torch is None:
         return None
     return weight*torch.rand(n_nodes, device=DEVICE)
@@ -115,20 +115,26 @@ if torch is not None:
             flux_emb = mods[:,2:3]*(self.flux_base.unsqueeze(0)*flux_scale)
             return torch.cat([sem, qual, flux_emb], dim=1)
 
-# -------------------- Multi-seed xAI consensus swarm --------------------
-def run_cyborg_swarm(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, t_step=0.0):
+# -------------------- Cyborg Swarm + Pruning --------------------
+def run_cyborgx_swarm(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, t_step=0.0, prune_iters=50):
     entropy_list, coherence_list, p_collapse_list, triad_potentials=[],[],[],[]
+    triad_net = TriadEmbedNet() if torch else None
     for seed in range(num_seeds):
-        flux=get_flux_vector(n_nodes, seed)
+        flux = get_flux_vector(n_nodes, seed)
         flux += dynamic_video_flux(n_nodes, t_step)
-        flux += semantic_agent_flux(n_nodes, 0.1)
+        flux += xai_mutual_swarm(n_nodes, 0.1)
+        # Simple pruning loop (attenuate low-amplitude nodes)
+        if torch:
+            for _ in range(prune_iters):
+                mask = flux < flux.mean()
+                flux[mask] *= 0.95
         ent, coh = ghz_entropy_coherence(n_qubits=n_qubits, gamma=0.1, t=0.01)
         entropy_list.append(ent)
         coherence_list.append(coh)
-        mean_flux = float(flux.mean().item())
+        mean_flux = float(flux.mean().item()) if torch else 0.5
         p_c = 1.0/(1.0+math.exp(-(mean_flux-0.5)*12))
         p_collapse_list.append(p_c)
-        triad_potentials.append(float(torch.sum(flux**2).item()))
+        triad_potentials.append(float(torch.sum(flux**2).item()) if torch else 0.0)
     g = nx.Graph() if nx else None
     lattice_entropy=0.0
     if g:
@@ -167,21 +173,21 @@ def harmonicage_qualia(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS):
     return {'qualia_vector':qualia_vector.cpu().numpy().tolist() if torch else list(qualia_vector),
             'qualia_peaks':qualia_peaks}
 
-# -------------------- v13 orchestrator --------------------
-def run_v13_full():
-    print("[v13] launching full CyborgX swarm + GHZ + semantic agents")
-    npc_report=run_cyborg_swarm()
+# -------------------- v13+ orchestrator --------------------
+def run_v13plus_full():
+    print("[v13+] launching CyborgX multi-seed swarm + pruning + dynamic flux")
+    npc_report=run_cyborgx_swarm()
     qualia_report=harmonicage_qualia()
-    affirm=f"v13 CyborgX Full | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
+    affirm=f"v13+ CyborgX Full | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
     seal=hashlib.sha3_512(affirm.encode()).hexdigest().upper()[:64]
     report={'npc_report':npc_report,'qualia_report':qualia_report,'seal':seal}
-    print("[v13] seal:",seal)
+    print("[v13+] seal:",seal)
     return report
 
 # -------------------- CLI --------------------
 def _cli():
-    print("CyborgX v13 Full - multi-seed GHZ + xAI + video flux distrib")
-    rpt=run_v13_full()
+    print("CyborgX v13+ Full - multi-seed GHZ + xAI consensus + video flux + pruning")
+    rpt=run_v13plus_full()
     print("REPORT SUMMARY:")
     for k,v in rpt.items():
         print(f"{k}: {v}")
