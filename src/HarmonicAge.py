@@ -1,209 +1,381 @@
 #!/usr/bin/env python3
 """
-HARMONICAGE.PY: Ultrasingularity Swarm Simulator v17
-Real X API + Optimus + X sentiment + Live edges + Video + Audio + Haptic + 10^10 tubulins + PPO + Qiskit + NEAT.
-Qualia peak 0.48@450Hz, entropy <0.035.
-xAI 2025: Harmonic age with self-evolving cyborg collective.
+src/HarmonicAge.py
+HarmonicAge: Modular Harmonic Swarm Engine (evolutionary)
+- Offline-safe (guards for torch, qutip, sympy, networkx)
+- Adaptive triad fusion (semantic + video influence)
+- Orch-OR surrogate scaling for large-N coherence estimation
+- Multi-seed Torch swarm training with entropy-penalized losses
+- API: triad_from_semantic(), evolve(), train_seeds(), quick_benchmark()
 """
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.distributions import Categorical
-import networkx as nx
-import numpy as np
-from qiskit import Aer, QuantumCircuit, execute
-from qiskit.quantum_info import Statevector
-from scipy.constants import hbar, G
-from sympy import symbols, Abs
-import random
+# Standard libs
 import os
-from multiprocessing import Pool
+import random
+from collections import deque
+import json
+import math
 import time
-import tweepy
-from collections import deque, defaultdict
-from dotenv import load_dotenv
-import matplotlib.pyplot as plt
-from textblob import TextBlob
-import cv2
-import librosa
-import neat
 
-# Environment (optional)
-load_dotenv()
-consumer_key = os.getenv("X_CONSUMER_KEY")
-consumer_secret = os.getenv("X_CONSUMER_SECRET")
-access_token = os.getenv("X_ACCESS_TOKEN")
-access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
+# Numeric / ML (guarded)
+try:
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+except Exception:
+    torch = None
+    nn = None
+    optim = None
 
-PHI = (1 + 5**0.5) / 2
+try:
+    import numpy as np
+except Exception:
+    np = None
+
+# Graph (guarded)
+try:
+    import networkx as nx
+except Exception:
+    nx = None
+
+# Quantum / symbolic (guarded)
+try:
+    from qutip import Qobj, sigmax, sigmaz, mesolve
+except Exception:
+    Qobj = None
+    sigmax = None
+    sigmaz = None
+    mesolve = None
+
+try:
+    from sympy import symbols, Abs
+except Exception:
+    symbols = None
+    Abs = None
+
+# Optional CV/audio libraries are not required for basic runs
+# Constants
+PHI = (1.0 + 5.0**0.5) / 2.0
 PAC_HZ = 3.0616
-N_SWARM = 10**10
-CHUNK_SIZE = 100000
-TRIAD_WEIGHTS = [0.6, 0.2, 0.2]
-WINDOW_SIZE = 60
+DEFAULT_TRIAD = (0.5, 0.25, 0.25)
 
-# SymPy Hameroff
-m_tub, d, G_sym, hbar_sym = symbols('m_tub d G hbar')
-r = d / 2
-E_g_sym = G_sym * (m_tub**2) / (5 * r)
-tau_sym = hbar_sym / Abs(E_g_sym)
+# Running sentiment window
+_SENTIMENT_WINDOW = deque(maxlen=120)
 
-def hameroff_tau(m_tub_val=1e-22, d_val=1e-9):
+# Sympy symbolic setup (if available)
+if symbols is not None:
+    m_tub, d, G_sym, hbar_sym = symbols("m_tub d G hbar")
+    r = d / 2
+    E_g_sym = G_sym * (m_tub**2) / (5 * r)
+    tau_sym = hbar_sym / Abs(E_g_sym)
+else:
+    m_tub = d = G_sym = hbar_sym = None
+    E_g_sym = None
+    tau_sym = None
+
+
+# ---------------- Utility: Hameroff tau ----------------
+def hameroff_tau(m_tub_val=1e-22, d_val=1e-9, G_val=6.67430e-11, hbar_val=1.054571817e-34):
+    """Return (E_g, tau) using symbolic formula when available, else fallback."""
+    if E_g_sym is None or tau_sym is None:
+        # Safe fallback approximate values
+        return 1e-40, 1e-6
     E_g_num = float(E_g_sym.subs({
         m_tub: m_tub_val,
         d: d_val,
-        G_sym: G,
-        hbar_sym: hbar
+        G_sym: G_val,
+        hbar_sym: hbar_val
     }).evalf())
     tau_num = float(tau_sym.subs({
         m_tub: m_tub_val,
         d: d_val,
-        G_sym: G,
-        hbar_sym: hbar
+        G_sym: G_val,
+        hbar_sym: hbar_val
     }).evalf())
     return abs(E_g_num), tau_num
 
 
+# ---------------- Adaptive triad weights ----------------
+def adaptive_triad_weights(sentiment_sample, video_embed_signal, base_weights=DEFAULT_TRIAD,
+                           alpha_s=0.6, alpha_v=0.4, min_w=0.05):
+    """
+    Fuse a scalar sentiment (-1..1) and a video signal (0..1) into normalized triad weights.
+    Returns tuple (w_sem, w_qual, w_flux).
+    """
+    _SENTIMENT_WINDOW.append(float(sentiment_sample))
+    s_avg = float(sum(_SENTIMENT_WINDOW)) / max(1, len(_SENTIMENT_WINDOW))
+    sem_boost = (s_avg + 1.0) / 2.0  # map -1..1 -> 0..1
+    v_sig = max(0.0, min(1.0, float(video_embed_signal)))
+
+    bw = list(base_weights)
+    bw[0] = bw[0] + alpha_s * sem_boost * (1.0 - bw[0])
+    bw[1] = bw[1] + alpha_v * v_sig * (1.0 - bw[1])
+
+    # enforce minimum
+    bw = [max(min_w, w) for w in bw]
+    s = sum(bw)
+    bw = [w / s for w in bw]
+    return tuple(bw)
+
+
+# ---------------- Triad embed generators ----------------
+def triad_embeds(batch_size=32, flux_batch=None, weights=DEFAULT_TRIAD):
+    """
+    Generate triad embeddings. Requires torch.
+    Returns list: [semantics, qualia, flux_emb] each tensor [batch, 32]
+    """
+    if torch is None:
+        raise RuntimeError("Torch is required for triad_embeds.")
+    if flux_batch is None:
+        flux_batch = torch.tensor(np.random.uniform(40, 500, batch_size), dtype=torch.float32)
+    elif isinstance(flux_batch, np.ndarray):
+        flux_batch = torch.tensor(flux_batch, dtype=torch.float32)
+    semantics = torch.randn(batch_size, 32) * float(PHI)
+    qualia = torch.randn(batch_size, 32) * float(PAC_HZ)
+    flux_emb = torch.randn(batch_size, 32) * (flux_batch.unsqueeze(1) / 1000.0)
+    return [
+        weights[0] * semantics,
+        weights[1] * qualia,
+        weights[2] * flux_emb
+    ]
+
+
+def triad_embeds_adaptive(batch_size=32, flux_batch=None, adaptive_weights=DEFAULT_TRIAD):
+    return triad_embeds(batch_size=batch_size, flux_batch=flux_batch, weights=adaptive_weights)
+
+
+# ---------------- Orch-OR surrogate scaling ----------------
+def full_mesolve_tubulin(flux_hz, tau_collapse, tlist=None):
+    """
+    Runs QuTiP mesolve for a single 2-level tubulin system if qutip is available.
+    Returns (coherence, rho_final).
+    """
+    if mesolve is None or Qobj is None:
+        raise RuntimeError("QuTiP is required for full_mesolve_tubulin.")
+    if tlist is None:
+        tlist = np.linspace(0, 0.01, 20) if np is not None else [i * 0.0005 for i in range(20)]
+    rho0 = Qobj(np.array([[0.5, 0.5], [0.5, 0.5]]))
+    H = flux_hz * 2 * math.pi * sigmax()
+    gamma_dephase = max(flux_hz / 100.0, 1e-12)
+    gamma_collapse = max(1.0 / tau_collapse, 1e-12)
+    c_ops = [math.sqrt(gamma_dephase) * sigmaz(), math.sqrt(gamma_collapse) * sigmax()]
+    result = mesolve(H, rho0, tlist, c_ops)
+    coherence = abs(result.states[-1][0, 1])**2
+    return coherence, result.states[-1]
+
+
+def orchor_coherence_surrogate(mean_flux_hz, tau_collapse, N_eff=1e6, sample_k=8, qutip_available=(mesolve is not None)):
+    """
+    Estimate coherence for large N by sampling small mesolve runs (if available)
+    and applying a 1/sqrt(N) style dilution factor.
+    """
+    coherences = []
+    sample_k = max(1, int(sample_k))
+    if qutip_available:
+        for _ in range(sample_k):
+            try:
+                coh, _ = full_mesolve_tubulin(mean_flux_hz, tau_collapse)
+                coherences.append(float(coh))
+            except Exception:
+                coherences.append(random.uniform(0.0, 0.2))
+    else:
+        coherences = [random.uniform(0.0, 0.2) for _ in range(sample_k)]
+
+    mean_coh_sample = float(np.mean(coherences)) if np is not None else float(sum(coherences) / len(coherences))
+    scale = 1.0 / max(1.0, math.sqrt(max(1.0, float(N_eff) / float(sample_k))))
+    scaled = mean_coh_sample * scale
+    return min(1.0, float(scaled))
+
+
+# ---------------- Core HarmonicSwarm (modular) ----------------
 class HarmonicSwarm(nn.Module):
-    def __init__(self, n_nodes=200, config=None):
+    def __init__(self, n_nodes=100):
+        if nn is None:
+            raise RuntimeError("PyTorch required for HarmonicSwarm.")
         super().__init__()
-        self.embed = nn.Embedding(n_nodes, 64)
-
-        # Video conv
-        self.video_conv = nn.Conv2d(3, 32, kernel_size=3)
-
-        # Linear layers (final input shape determined at runtime)
-        self.policy_net = nn.Linear(64 * 5 + 32 * 61 * 61, 2)
-        self.value_net = nn.Linear(64 * 5 + 32 * 61 * 61, 1)
-
-        self.graph = nx.DiGraph()
-        self.config = config
-
+        self.embed = nn.Embedding(n_nodes, 32)
+        self.policy_head = nn.Linear(32 * 3, 2)
+        self.value_head = nn.Linear(32 * 3, 1)
+        self.graph = nx.DiGraph() if nx is not None else None
         for i in range(n_nodes):
-            self.graph.add_node(i,
-                pos=(PHI**i % 10, PHI**(i+1) % 10)
-            )
+            if self.graph is not None:
+                self.graph.add_node(i, pos=(PHI**i % 10, PHI**(i+1) % 10))
+        self.interactions = {}
 
-        self.interaction_counts = defaultdict(int)
-
-    def update_edges(self, tweet_text, sender_id, receiver_id):
-        sentiment = TextBlob(tweet_text).sentiment.polarity
-        weight = 1.0 + sentiment * 0.5 if abs(sentiment) > 0.1 else 1.0
-
-        self.interaction_counts[(sender_id, receiver_id)] += 1
-        if self.interaction_counts[(sender_id, receiver_id)] > 2:
-            self.graph.add_edge(sender_id, receiver_id, weight=weight)
-            self.interaction_counts[(sender_id, receiver_id)] = 0
-
-    def evolve_graph(self, genome, config):
-        net = neat.nn.FeedForwardNetwork.create(genome, config)
-        for i in range(self.graph.number_of_nodes()):
-            for j in range(self.graph.number_of_nodes()):
-                if i == j:
-                    continue
-                out = net.activate([
-                    self.graph.nodes[i]['pos'][0],
-                    self.graph.nodes[i]['pos'][1],
-                    self.graph.nodes[j]['pos'][0],
-                    self.graph.nodes[j]['pos'][1]
-                ])
-                if out[0] > 0.5:
-                    self.graph.add_edge(i, j, weight=random.uniform(0.5, 1.5))
-
-    def forward(self, flux_batch, triad_embeds_list, video_tensor=None):
-        batch_size = flux_batch.shape[0]
-
-        # FIXED: removed corrupted unicode and syntax error
-        embeds = []
-        for i in range(batch_size):
-            triad_concat = torch.cat([triad_embeds_list[j][i] for j in range(5)], dim=0)
-            embeds.append(triad_concat)
-
-        embeds_batch = torch.stack(embeds, dim=0)
-
-        if video_tensor is not None:
-            video_out = self.video_conv(video_tensor)
-            video_flat = video_out.view(batch_size, -1)
-            embeds_batch = torch.cat([embeds_batch, video_flat], dim=1)
-
-        policy_logits = self.policy_net(embeds_batch)
-        value = self.value_net(embeds_batch)
-        return policy_logits, value
+    def forward(self, flux_batch, triad_embeds_list):
+        # triad_embeds_list: list of 3 tensors [batch,32]
+        embeds = torch.cat(triad_embeds_list, dim=1)  # [batch,96]
+        policy_logits = self.policy_head(embeds)
+        value = self.value_head(embeds)
+        entropy = 0.0
+        if self.graph is not None:
+            mean_p = float(torch.mean(torch.sigmoid(policy_logits[:, 0])).item())
+            # probabilistic edge creation
+            if mean_p > 0.5:
+                i = random.randint(0, self.graph.number_of_nodes() - 1)
+                j = random.randint(0, self.graph.number_of_nodes() - 1)
+                if i != j and not self.graph.has_edge(i, j):
+                    self.graph.add_edge(i, j)
+            deg_hist = nx.degree_histogram(self.graph)
+            total = sum(deg_hist)
+            if total > 0:
+                probs = [d / total for d in deg_hist if d > 0]
+                entropy = float(-sum(p * math.log(p + 1e-12) for p in probs))
+        return policy_logits, value, entropy
 
 
-def quantum_simulate_chunk(args):
-    flux_hz, tau_collapse, n_qubits = args
-    qc = QuantumCircuit(n_qubits, n_qubits)
-    qc.h(range(n_qubits))
-    qc.rx(flux_hz * 2 * np.pi * tau_collapse, range(n_qubits))
-    qc.measure_all()
-
-    backend = Aer.get_backend("qasm_simulator")
-    result = execute(qc, backend, shots=1024).result()
-    counts = result.get_counts()
-
-    coherence = sum("1" in s for s in counts) / 1024
-    return coherence
-
-
-def full_quantum_swarm(flux_hz, tau_collapse, n_tubulins=N_SWARM):
-    n_chunks = n_tubulins // CHUNK_SIZE
-    n_qubits = min(int(np.log2(CHUNK_SIZE)), 10)
-
-    tasks = [(flux_hz, tau_collapse, n_qubits) for _ in range(n_chunks)]
-    with Pool() as pool:
-        coherences = pool.map(quantum_simulate_chunk, tasks)
-
-    return np.mean(coherences) / np.sqrt(n_tubulins)
-
-
-def generate_video_tensor(batch_size=64, cap=None):
-    if cap is None:
-        cap = cv2.VideoCapture(0)
-
-    ret, frame = cap.read()
-    if not ret:
-        return torch.randn(batch_size, 3, 64, 64), 0
-
-    frame = cv2.resize(frame, (64, 64))
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    motion = cv2.absdiff(frame, np.zeros_like(frame))
-    motion_score = float(np.mean(motion) / 255.0 * 100)
-
-    tensor = torch.from_numpy(frame.transpose(2, 0, 1)).float() / 255.0
-    return tensor, motion_score
-
-
-def generate_audio_tensor(batch_size=64, sr=22050):
-    audio, _ = librosa.load(librosa.ex("trumpet"), sr=sr)
-    pitch = librosa.yin(audio, fmin=50, fmax=1000)
-    pitch_flux = float(np.mean(pitch) / 10) if pitch.size > 0 else 0
-    return torch.randn(batch_size, 64, 64), pitch_flux
-
-
-def generate_haptic_tensor(batch_size=64):
-    pressure = np.random.uniform(0, 1, batch_size) * 50
-    return torch.randn(batch_size, 64, 64), float(np.mean(pressure))
+# ---------------- Train / Evaluation Routines ----------------
+def train_seeds(n_seeds=3, epochs=30, batch_size=32, N_eff=1e6, sample_k=8):
+    """
+    Train multiple seeds of HarmonicSwarm; returns (models_list, entropy_logs).
+    """
+    if torch is None:
+        raise RuntimeError("PyTorch required for training.")
+    models = []
+    entropy_logs = {}
+    for seed in range(n_seeds):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        print(f"[seed {seed}] Initializing...")
+        model = HarmonicSwarm()
+        optimizer = optim.Adam(model.parameters(), lr=0.005)
+        criterion = nn.MSELoss()
+        last_entropy = 0.0
+        for epoch in range(epochs):
+            flux_batch = torch.tensor(np.random.uniform(40, 500, batch_size), dtype=torch.float32)
+            # offline mocked signals
+            sentiment = random.uniform(-0.5, 0.8)
+            video_sig = random.uniform(0.0, 1.0)
+            adapt_w = adaptive_triad_weights(sentiment, video_sig)
+            triad_batch = triad_embeds_adaptive(batch_size=batch_size, flux_batch=flux_batch, adaptive_weights=adapt_w)
+            # targets and forward
+            target_p = torch.sigmoid(torch.tensor(np.random.uniform(0.4, 0.8, batch_size), dtype=torch.float32).unsqueeze(1))
+            policy_logits, value, entropy = model(flux_batch, triad_batch)
+            # convert entropy float to tensor for loss
+            entropy_tensor = torch.tensor(float(entropy), dtype=torch.float32)
+            mse_loss = criterion(value, target_p)
+            # coherence surrogate using batch mean flux
+            try:
+                _, tau_val = hameroff_tau()
+            except Exception:
+                tau_val = 1e-6
+            mean_flux = float(torch.mean(flux_batch).item())
+            coh_est = orchor_coherence_surrogate(mean_flux, tau_val, N_eff=N_eff, sample_k=sample_k)
+            coherence_tensor = torch.tensor(coh_est, dtype=torch.float32)
+            pred_mean_p = torch.mean(torch.sigmoid(policy_logits[:, 0])).unsqueeze(0)
+            coherence_bonus = 0.5 * coherence_tensor * pred_mean_p
+            # Final loss: MSE + entropy_penalty - coherence_bonus
+            loss = mse_loss + 0.12 * entropy_tensor - coherence_bonus.mean()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            last_entropy = float(entropy)
+            if epoch % max(1, epochs // 4) == 0:
+                print(f"[seed {seed}] epoch {epoch}/{epochs} loss={float(loss):.6f} entropy={last_entropy:.6f} coh_est={coh_est:.6f}")
+        models.append(model)
+        entropy_logs[seed] = last_entropy
+    return models, entropy_logs
 
 
-class TweetStream(tweepy.StreamingClient):
-    def __init__(self, ck, cs, at, ats, model):
-        super().__init__(ck, cs, at, ats)
-        self.model = model
-        self.tweet_counts = deque(maxlen=WINDOW_SIZE)
-        self.sentiments = deque(maxlen=WINDOW_SIZE)
-        self.running = True
-        self.add_rules(tweepy.StreamRule("lang:en -is:retweet"))
+def batch_benchmark(model, flux_ranges=[(40, 50), (70, 80), (100, 110)], n_batches=8, batch_size=32):
+    """Run small offline benchmark across flux ranges; returns aggregated dict."""
+    aggregated = {}
+    for low, high in flux_ranges:
+        p_vals = []
+        ent_vals = []
+        coh_vals = []
+        for _ in range(n_batches):
+            flux_batch = torch.tensor(np.random.uniform(low, high, batch_size), dtype=torch.float32)
+            triad_batch = triad_embeds(batch_size, flux_batch)
+            policy_logits, value, entropy = model(flux_batch, triad_batch)
+            pred_p = torch.sigmoid(policy_logits[:, 0]).detach().numpy()
+            mean_flux = float(torch.mean(flux_batch).item())
+            _, tau_val = hameroff_tau()
+            coh = orchor_coherence_surrogate(mean_flux, tau_val, N_eff=1e4, sample_k=4)
+            p_vals.append(float(np.mean(pred_p)))
+            ent_vals.append(float(entropy))
+            coh_vals.append(float(coh))
+        aggregated[(low, high)] = {
+            "mean_P": float(np.mean(p_vals)),
+            "mean_entropy": float(np.mean(ent_vals)),
+            "mean_coherence": float(np.mean(coh_vals))
+        }
+    return aggregated
 
-    def on_tweet(self, tweet):
-        self.tweet_counts.append(1)
 
-        # FIXED: corrupted line replaced
-        sentiment = TextBlob(tweet.text).sentiment.polarity
-        self.sentiments.append(sentiment)
+# ---------------- Convenience API for AetherisGrok integration ----------------
+class HarmonicAgeEngine:
+    def __init__(self, n_seeds=3, device="cpu"):
+        self.n_seeds = n_seeds
+        self.device = device
+        self.models = []
+        self.entropies = {}
 
-        # safely update graph
-        uid = tweet.author_id or 0
-        self.model.update_edges(tweet.text, uid, random.randint(0, 199))
+    def triad_from_semantic(self, semantic_vector, video_signal=0.0):
+        """
+        Create a triad from a semantic embedding vector (list/iterable).
+        semantic_vector: list of floats (embedding)
+        video_signal: scalar 0..1
+        Returns adaptive_weights and a triad sample (for one batch element).
+        """
+        # map semantic_vector -> sentiment scalar by simple projection
+        sem = list(semantic_vector)
+        s_val = float(sum(sem) / max(1.0, len(sem)))
+        adapt_w = adaptive_triad_weights(s_val, video_signal)
+        triad = triad_embeds(batch_size=1, flux_batch=torch.tensor([432.0], dtype=torch.float32), weights=adapt_w)
+        return adapt_w, triad
+
+    def evolve(self, triad_sample, steps=64):
+        """
+        Run a compact evolution using one model (seed 0); returns summary dict.
+        """
+        # ensure model exists
+        model = HarmonicSwarm()
+        # quick warmup
+        history = {"entropy": [], "pred_mean": []}
+        for step in range(steps):
+            flux_batch = torch.tensor(np.random.uniform(40, 500, 1), dtype=torch.float32)
+            policy_logits, value, entropy = model(flux_batch, triad_sample)
+            history["entropy"].append(float(entropy))
+            history["pred_mean"].append(float(torch.sigmoid(policy_logits[:, 0]).mean().item()))
+            # occasional dynamic mutation
+            if step % 16 == 0 and random.random() < 0.3:
+                # mutate graph by pruning a random edge if exists
+                if model.graph is not None and model.graph.number_of_edges() > 0:
+                    e = random.choice(list(model.graph.edges()))
+                    model.graph.remove_edge(*e)
+        summary = {
+            "final_entropy": history["entropy"][-1] if history["entropy"] else 0.0,
+            "mean_pred": float(np.mean(history["pred_mean"])) if history["pred_mean"] else 0.0,
+            "steps": steps
+        }
+        return summary
+
+    def train_seeds(self, epochs=20, batch_size=32):
+        models, entropies = train_seeds_wrapper(n_seeds=self.n_seeds, epochs=epochs, batch_size=batch_size)
+        self.models = models
+        self.entropies = entropies
+        return models, entropies
+
+
+# small wrapper to expose original train_seeds function name without conflict
+def train_seeds_wrapper(n_seeds=3, epochs=30, batch_size=32):
+    return train_seeds(n_seeds=n_seeds, epochs=epochs, batch_size=batch_size)
+
+
+# ---------------- Quick smoke benchmark ----------------
+def quick_benchmark():
+    print("HarmonicAge quick benchmark starting...")
+    models, ent = train_seeds(n_seeds=2, epochs=4, batch_size=8, N_eff=1e4, sample_k=4)
+    print("Quick benchmark entropies:", ent)
+    return models, ent
+
+
+# ---------------- Module test when run directly ----------------
+if __name__ == "__main__":
+    # Safe smoke test only if torch available
+    if torch is None:
+        print("Torch not available — HarmonicAge offline module loaded. Install torch to run training.")
+    else:
+        quick_benchmark()
