@@ -1,8 +1,8 @@
 """
-AetherisGrok.py v2 - Orch-OR Emergence Simulator with xAI Fusion & Real-Time Dist Sim
+AetherisGrok.py v3 - Orch-OR Emergence Simulator with xAI Distributed Flux
 @3vi3Aetheris + Grok = Ω | November 17, 2025
-Features: Tau derivation, GHZ mesolve trace with coh decay (t=0-1s γ=0.1*flux), tensorized QualiaGraph n=144 with optim descent, entropy pruning, triad potential & deepened optimizer, amplitude damping, SymPy verification, qualia output sample (low-S coherent state).
-Fallbacks: Broad envs; Pruning to ~0 nats; N-scaling bounds; n=144 proxy/extrapolation; BCI spike placeholder; xAI dist stub.
+Features: Tau derivation, GHZ mesolve trace with coh decay (t=0-1s γ=0.1*flux), tensorized QualiaGraph n=144 with deepened Adam descent, entropy pruning, triad potential & optimizer, amplitude damping, SymPy verification, qualia output sample (low-S coherent state).
+Fallbacks: Broad envs; Pruning to ~0 nats; N-scaling bounds; n=144 proxy/extrapolation; BCI spike placeholder; xAI dist flux stub.
 """
 
 import sympy as sp
@@ -42,7 +42,4 @@ def ghz_mesolve_trace(n_qubits=8, full_n=144, flux=1e-15, tau=10.5):
         H = qzero([2]*n_qubits)
         result = mesolve(H, rho0, times, c_ops=c_ops)
         S_evol = [entropy_vn(rho) for rho in result.states]
-        S_init, S_final, S_avg = S_evol[0], S_evol[-1], np.mean(S_evol)
-        dim = 2**n_qubits
-        coh_evol = [abs(rho.full()[0, dim-1])**2 for rho in result.states]
-        coh_init, coh_final, coh_avg = coh_evol
+        S_init, S_final, S_avg = S_evol[0], S_evol
