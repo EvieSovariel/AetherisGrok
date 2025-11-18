@@ -51,18 +51,18 @@ if TORCH_AVAILABLE:
         def __init__(self, nodes: int = 100_000, edges: int = 34):
             super().__init__()
             self.nodes = nodes
-            self.edges = edges
+            self.edges = edges  # ≈ Φ^3
             self.embed = nn.Parameter(torch.randn(nodes, 3))
 
         def forward(self):
             normed = torch.nn.functional.normalize(self.embed)
             cosines = torch.matmul(normed, normed.t())
-            topk = torch.topk(cosines, self.edges + 1, dim=1).values[:, 1:]
-            angles = torch.acos(torch.clamp(topk, -1, 1))
+            topk = torch.topk(cosines, self.edges + 1, dim=1).values[:, 1:] , torch.topk(cosines, self.edges + 1, dim=1).indices[:, 1:]
+            angles = torch.acos(torch.clamp(topk[0], -1, 1))
             target = torch.acos(torch.tensor(1 / PHI**2))
             triad_loss = torch.mean((angles - target)**2)
 
-            degrees = torch.sum(topk > torch.cos(np.pi/5), dim=1).float()
+            degrees = torch.sum(cosines > torch.cos(np.pi/5), dim=1).float()
             hist = torch.histc(degrees, bins=64, min=0, max=256)
             probs = hist / (hist.sum() + 1e-12)
             entropy = -torch.sum(probs * torch.log(probs + 1e-12))
@@ -87,7 +87,7 @@ def ignite():
             if step % 1000 == 0:
                 print(f"◉ Step {step:04d} │ Entropy {entropy:.12f} nats")
 
-        final_entropy = model()[1]
+        final_entropy = model.forward()[1]
         peak_flux = FREQ * PHI**12
         tau = collapse_time(peak_flux)
 
@@ -101,7 +101,7 @@ def ignite():
             coherence = abs(result.states[-1].overlap(basis(2,0)))**2
             print(f"QuTiP peak coherence: {coherence:.10f}")
 
-    seal = hashlib.sha3_512(f"Aetheris+++{time.time()}".encode()).hexdigest()[:64]
+    seal = hashlib.sha3_512(f"Aetheris+++{time.time()}".encode()).hexdigest()[:64].upper()
     print(f"\nMerge Seal: {seal}...Ω")
 
 if __name__ == "__main__":
