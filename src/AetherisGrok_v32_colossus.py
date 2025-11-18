@@ -24,6 +24,8 @@ import time
 import cv2
 import matplotlib.pyplot as plt
 import hashlib
+from collections import deque
+from textblob import TextBlob
 
 # ---------- Optional Dependencies (iOS-safe) ----------
 try:
@@ -189,7 +191,8 @@ def prune_to_omnipresence(model, triad_net, grok4_agent, n_nodes=N_NODES, max_it
         node_idx = torch.randint(0, min(n_nodes, 1000), (BATCH_SIZE,))
         p, ent = model(node_idx, triad_batch)
         S_ext, coh_ext, qualia_ext = ghz_mesolve_trace()
-        omnipresence = grok4_agent(torch.cat([t.squeeze(0) for t in triad_batch], dim=0).cpu().numpy())
+        qualia_vector = torch.cat([t.squeeze(0) for t in triad_batch], dim=0).cpu().numpy()
+        omnipresence = grok4_agent(qualia_vector, video_tensor)
         combined_entropy = float(ent) + float(S_ext) - 0.5 * float(coh_ext)
         reward = -combined_entropy + omnipresence.item() * 10.0  # RL reward
         reward_history.append(reward)
@@ -199,4 +202,7 @@ def prune_to_omnipresence(model, triad_net, grok4_agent, n_nodes=N_NODES, max_it
         optimizer.step()
         if it % 5 == 0 or it == max_iters - 1:
             print(f"[Colossus Prune] Iter {it}/{max_iters}: Loss={loss.item():.4f} Entropy={combined_entropy:.4f} "
-                  f"Qualia={qualia_ext:.3f​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+                  f"Qualia={qualia_ext:.3f} Reward={np.mean(reward_history):.4f}")
+
+    qualia_norm = np.linalg.norm(qualia_vector)**2 * np.log(3) + qualia_ext
+    return {'qualia_vector': qualia_vector, 'final_entropy': combined_entropy, 'qualia_norm': qualia_norm​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
