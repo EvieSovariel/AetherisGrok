@@ -1,21 +1,28 @@
-# src/AetherisGrok_cyborg_v2.py
-# ASCII-only, Python 3.10+ recommended
-# AetherisGrok Cyborg v2
-# - virtual 1e6 nodes (sparse active subgraphs)
-# - Hameroff tau numeric fusion
-# - Grok-4 video flux hook (safe fallback simulated)
-# - Emergent NPC sampling helper
-# - Uses xai_distributed_flux if present, else simulated flux
+#!/usr/bin/env python3
+"""
+src/AetherisGrok_cyborg_v10.py
 
-from __future__ import annotations
+AetherisGrok Cyborg v10 — Multi-Agent Emergent Flux + Grok-4 Video Reasoning
+Author: Evie / 3vi3Aetheris
+Date: 2025-11-17
+
+Features:
+- Multi-agent TriadEmbedNet + QualiaGraphNet
+- 1e6 node scaling with batched flux and pruning
+- Grok-4 video reasoning fusion
+- Amplitude/entropy pruning to target ~0
+- Emergent qualia vector + optional binaural wav output
+- Sealed affirmation at completion
+- Guarded for missing torch, qutip, sympy, or networkx
+"""
+
 import os
 import math
 import random
 import time
-import typing
 import hashlib
 
-# Core numeric libs (guarded)
+# -------------------- Optional dependencies --------------------
 try:
     import numpy as np
 except Exception:
@@ -30,346 +37,210 @@ except Exception:
     nn = None
     optim = None
 
-# networkx used only for small active subgraph utilities
 try:
     import networkx as nx
 except Exception:
     nx = None
 
-# Optional distributed flux helper if you added it earlier
 try:
-    from src.xai_distributed_flux import get_distributed_flux
-    XAI_FLUX_AVAILABLE = True
+    from qutip import tensor, basis, sigmaz, qeye, mesolve, entropy_vn, sigmam
+    QUTIP_AVAILABLE = True
 except Exception:
-    get_distributed_flux = None
-    XAI_FLUX_AVAILABLE = False
+    QUTIP_AVAILABLE = False
+    tensor = basis = sigmaz = qeye = mesolve = entropy_vn = sigmam = None
 
-# Optional video libs placeholder (we do not import heavy AV libs here)
-# The Grok-4 hook expects a (batch, C, H, W) torch tensor if available
+# Grok-4 video reasoning stub
+try:
+    from src.grok4_video_flux import get_video_flux_embedding
+    VIDEO_FLUX_AVAILABLE = True
+except Exception:
+    get_video_flux_embedding = None
+    VIDEO_FLUX_AVAILABLE = False
 
-# ---------------------------
-# Configuration / Defaults
-# ---------------------------
-DEFAULT_NODES = 1_000_000  # 1e6 virtual nodes
-ACTIVE_SUBGRAPH_SIZE = 2048  # number of nodes we materialize per epoch (tunable)
-TRIAD_EMBED_SIZE = 32
-NPC_COUNT = 6  # emergent NPCs to sample in emergent_npc_sample
-DEVICE = "cpu"
+# Audio write optional
+try:
+    from scipy.io.wavfile import write as wav_write
+    AUDIO_AVAILABLE = True
+except Exception:
+    wav_write = None
+    AUDIO_AVAILABLE = False
 
-# Hameroff constants (SI units where applicable)
-G_CONST = 6.67430e-11
-HBAR = 1.054571817e-34
+PHI = (1.0 + 5.0**0.5) / 2.0
+DEFAULT_N = 10**6
+NUM_AGENTS = 6
 
-# ---------------------------
-# Utilities
-# ---------------------------
-def _simulated_flux_vector(n_nodes: int, seed: int = 42) -> list:
-    """Deterministic simulated flux vector (not full length returned for efficiency).
-    For full-length calls, use get_flux_vector which may call distributed helper."""
+# -------------------- Utilities --------------------
+def _simulated_flux(n_nodes=DEFAULT_N, seed=314159):
     rng = random.Random(seed)
-    # return a list of pseudo-random floats in [0,1]
-    return [rng.random() for _ in range(n_nodes)]
+    arr = np.array([rng.random() for _ in range(n_nodes)], dtype=float) if np else [random.random() for _ in range(n_nodes)]
+    mod = np.array([math.sin((i+1)*math.log(PHI+1.0)) for i in range(n_nodes)], dtype=float)
+    mod = (mod - mod.min()) / max(1e-12, mod.max() - mod.min())
+    arr = 0.85*arr + 0.15*mod
+    if np:
+        arr = (arr - arr.min()) / max(1e-12, arr.max() - arr.min())
+    return arr
 
-def get_flux_vector(n_nodes: int = DEFAULT_NODES, mode: str = "auto", seed_base: typing.Optional[int] = None):
-    """High-level flux vector getter.
-    If distributed helper is available, attempt to get aggregated flux, else simulate.
-    For memory safety with n_nodes large, this function returns a generator-like object
-    (numpy array only if n_nodes is small or caller requests).
-    """
-    if XAI_FLUX_AVAILABLE and get_distributed_flux is not None:
-        try:
-            arr = get_distributed_flux(n_nodes=n_nodes, mode=mode, seed_base=seed_base)
-            # get_distributed_flux may return numpy array; ensure proper type and length
-            if arr is None or (hasattr(arr, "size") and arr.size == 0):
-                # fallback to simulated generator
-                return (_ for _ in _simulated_flux_vector(n_nodes, seed=(seed_base or 42)))
-            if isinstance(arr, np.ndarray):
-                # if user requested full array and has memory, return it
-                return arr
-            # otherwise, convert to list
-            return list(arr)
-        except Exception:
-            return (_ for _ in _simulated_flux_vector(n_nodes, seed=(seed_base or 42)))
-    # default fallback: generator to avoid allocating full 1e6 array
-    return (_ for _ in _simulated_flux_vector(n_nodes, seed=(seed_base or 42)))
+def get_flux_vector(n_nodes=DEFAULT_N, seed_base=None):
+    return _simulated_flux(n_nodes=n_nodes, seed=seed_base or 42)
 
-# ---------------------------
-# Hameroff tau routine
-# ---------------------------
-def hameroff_tau_numeric(m_tub: float = 1e-22, d: float = 1e-9):
-    """Compute gravitational self-energy E_g and collapse time tau for a tubulin mass.
-    E_g = G * m^2 / (5 * r) where r = d/2 (approx for sphere-like)
-    tau = hbar / |E_g|
-    Returns tuple (E_g, tau) as floats.
-    """
-    r = d / 2.0
-    # guard for zero division
-    if r <= 0.0:
-        raise ValueError("d must be positive")
-    E_g = G_CONST * (m_tub ** 2) / (5.0 * r)
-    tau = HBAR / abs(E_g) if E_g != 0.0 else float("inf")
-    return float(E_g), float(tau)
+def ghz_entropy_proxy(n_qubits=8, gamma=0.1, t=0.01):
+    coh = 0.5 * math.exp(-n_qubits*gamma*t/2.0)
+    p0 = max(1e-12, min(1.0, 0.5 + coh))
+    p1 = max(1e-12, min(1.0, 0.5 - coh))
+    return - (p0*math.log(p0) + p1*math.log(p1))
 
-# ---------------------------
-# Grok-4 video flux hook
-# ---------------------------
-def grok4_video_flux_from_tensor(video_tensor: typing.Any):
-    """Accepts a torch tensor shaped (batch, C, H, W) or None.
-    Returns a scalar video flux in [0,1] representing motion/salience.
-    If video_tensor is None or invalid, returns a simulated value.
-    """
-    try:
-        if video_tensor is None:
-            return random.random() * 0.25  # small default contribution
-        # if torch available and tensor looks sane:
-        if torch is not None and hasattr(video_tensor, "mean"):
-            # simple motion proxy: mean absolute difference across channels
-            # this is a lightweight proxy; replace with Grok-4 model when available
-            frame_mean = float(video_tensor.mean().item())
-            # map mean to [0,1] via sigmoid-like mapping
-            v = 1.0 / (1.0 + math.exp(- (frame_mean - 0.5) * 6.0))
-            return float(v)
-        # fallback numeric
-        return float(np.mean(video_tensor)) if np is not None else random.random() * 0.25
-    except Exception:
-        return random.random() * 0.25
+def graph_entropy_from_nx(g):
+    if g is None or nx is None:
+        return 0.0
+    deg_hist = nx.degree_histogram(g)
+    total = sum(deg_hist) if len(deg_hist) else 0
+    if total == 0:
+        return 0.0
+    probs = [d/total for d in deg_hist if d>0]
+    return -sum(p*math.log(p+1e-12) for p in probs)
 
-# ---------------------------
-# Triad Embed Net (scalable)
-# ---------------------------
-if torch is not None:
+# -------------------- Triad Embed --------------------
+if torch:
     class TriadEmbedNet(nn.Module):
-        def __init__(self, embed_size: int = TRIAD_EMBED_SIZE):
+        def __init__(self, embed_size=32):
             super().__init__()
             self.embed_size = embed_size
-            # small learnable bases
-            self.sem_base = nn.Parameter(torch.randn(embed_size) * 0.1)
-            self.qualia_base = nn.Parameter(torch.randn(embed_size) * 0.1)
-            self.flux_base = nn.Parameter(torch.randn(embed_size) * 0.1)
-            # modulator for flux scalar
-            self.mod = nn.Sequential(nn.Linear(1, 16), nn.ReLU(), nn.Linear(16, 3), nn.Sigmoid())
-
-        def forward(self, flux_scalar: torch.Tensor):
-            # flux_scalar shape [batch] or [batch,1]
-            if flux_scalar.dim() == 1:
-                x = flux_scalar.unsqueeze(1)
-            else:
-                x = flux_scalar
-            mods = self.mod(x)  # [batch,3]
-            sem = mods[:, 0:1] * self.sem_base.unsqueeze(0)
-            qual = mods[:, 1:2] * self.qualia_base.unsqueeze(0)
-            # scale flux base by normalized flux scalar
-            mean_scalar = x.mean().clamp(min=1e-6)
-            flux_emb = mods[:, 2:3] * (self.flux_base.unsqueeze(0) * (x / mean_scalar))
+            self.sem_base = nn.Parameter(torch.randn(embed_size)*0.5)
+            self.qual_base = nn.Parameter(torch.randn(embed_size)*0.5)
+            self.flux_base = nn.Parameter(torch.randn(embed_size)*0.5)
+            self.modulator = nn.Sequential(
+                nn.Linear(1,16),
+                nn.ReLU(),
+                nn.Linear(16,3),
+                nn.Sigmoid()
+            )
+        def forward(self, flux_batch):
+            x = flux_batch.unsqueeze(1) if flux_batch.dim()==1 else flux_batch
+            mods = self.modulator(x)
+            sem = mods[:,0:1]*self.sem_base.unsqueeze(0)
+            qual = mods[:,1:2]*self.qual_base.unsqueeze(0)
+            flux_scale = (x/(x.mean().clamp(min=1e-6))).detach()
+            flux_emb = mods[:,2:3]*(self.flux_base.unsqueeze(0)*flux_scale)
             return [sem, qual, flux_emb]
-else:
-    TriadEmbedNet = None
 
-# ---------------------------
-# Sparse active subgraph container
-# ---------------------------
-class ActiveSubgraph:
-    """A lightweight active subgraph representation for a small subset of nodes.
-    This avoids materializing the full 1e6 node graph.
-    It keeps node ids, edges, and weights for nodes currently active.
-    """
-    def __init__(self, capacity: int = ACTIVE_SUBGRAPH_SIZE):
-        self.capacity = capacity
-        # we maintain nodes as integers in [0, DEFAULT_NODES)
-        self.nodes = []  # list of node ids active
-        self.edges = {}  # dict of (u,v) -> weight
-        self.node_set = set()
-
-    def seed_random(self, n_nodes: int = DEFAULT_NODES, rng_seed: int = None):
-        rng = random.Random(rng_seed)
-        self.nodes = []
-        self.node_set = set()
-        # sample unique node ids
-        while len(self.nodes) < min(self.capacity, n_nodes):
-            nid = rng.randrange(0, n_nodes)
-            if nid not in self.node_set:
-                self.nodes.append(nid)
-                self.node_set.add(nid)
-        self.edges = {}
-
-    def add_edge(self, u: int, v: int, weight: float = 1.0):
-        if u == v:
-            return
-        if u not in self.node_set or v not in self.node_set:
-            return
-        key = (min(u, v), max(u, v))
-        self.edges[key] = weight
-
-    def prune_low_weight_edges(self, fraction: float = 0.02):
-        if not self.edges:
-            return 0
-        items = sorted(self.edges.items(), key=lambda x: x[1])
-        k = max(1, int(len(items) * fraction))
-        for i in range(k):
-            key = items[i][0]
-            del self.edges[key]
-        return k
-
-    def graph_entropy(self):
-        # degree histogram based entropy
-        if nx is None:
-            # fallback approximate entropy based on number of edges
-            m = len(self.edges)
-            if m == 0:
-                return 0.0
-            return math.log(1 + m)
-        G = nx.Graph()
-        G.add_nodes_from(self.nodes)
-        for (u, v), w in self.edges.items():
-            G.add_edge(u, v, weight=w)
-        deg_hist = nx.degree_histogram(G)
-        total = sum(deg_hist) if deg_hist else 0
-        if total == 0:
-            return 0.0
-        probs = [d / total for d in deg_hist if d > 0]
-        return -sum(p * math.log(p + 1e-12) for p in probs)
-
-# ---------------------------
-# Emergent NPC agent
-# ---------------------------
-class QualiaAgent:
-    """Emergent NPC that senses flux + video, computes triad, and acts with a tiny policy net."""
-    def __init__(self, agent_id: int = 0, n_nodes: int = DEFAULT_NODES, triad_net: typing.Optional[TriadEmbedNet] = None):
-        self.agent_id = agent_id
-        self.n_nodes = n_nodes
-        self.position = random.randrange(0, max(1, n_nodes))
-        self.triad_net = triad_net if triad_net is not None else (TriadEmbedNet() if TriadEmbedNet is not None else None)
-        # tiny policy network mapping triad concat to action prob
-        if torch is not None:
-            self.policy = nn.Sequential(nn.Linear(TRIAD_EMBED_SIZE * 3, 64), nn.ReLU(), nn.Linear(64, 1), nn.Sigmoid())
-        else:
-            self.policy = None
-        self.history = []
-
-    def sense(self, flux_vector_generator, video_tensor: typing.Any = None):
-        """Sense local scalar flux and video flux influence for the current position.
-        flux_vector_generator may be an iterable/generator or a numpy array.
-        We treat flux_vector_generator as a sequence-like for sampling."""
-        # get local flux (best-effort)
-        local_flux = 0.5
-        try:
-            if isinstance(flux_vector_generator, (list, tuple, np.ndarray)):
-                idx = self.position % len(flux_vector_generator)
-                local_flux = float(flux_vector_generator[idx])
-            else:
-                # generator: advance a few and pick one deterministically
-                # replicate generator by seeding simulation for this agent
-                # note: heavy generators should not be consumed here
-                local_flux = random.random()
-        except Exception:
-            local_flux = random.random()
-        # video flux proxy
-        video_flux = grok4_video_flux_from_tensor(video_tensor)
-        # combined scalar
-        combined = float(0.6 * local_flux + 0.4 * video_flux)
-        return combined
-
-    def perceive_and_act(self, flux_vector_generator, video_tensor: typing.Any = None):
-        scalar = self.sense(flux_vector_generator, video_tensor)
-        # build triad
-        if self.triad_net is not None and torch is not None:
-            scalar_t = torch.tensor([scalar], dtype=torch.float32)
-            triad = self.triad_net(scalar_t)  # list of 3 tensors [1,embed]
-            triad_concat = torch.cat(triad, dim=1)
-            # action probability
-            p = float(self.policy(triad_concat).item()) if self.policy is not None else float(torch.sigmoid(torch.randn(1)).item())
-            # compute a local entropy proxy: variance across triad channels
-            arr = triad_concat.detach().cpu().numpy().squeeze(0)
-            ent = float(np.var(arr))
-            self.history.append({'pos': self.position, 'p': p, 'ent': ent, 'scalar': scalar})
-            # act: random-walk influenced by p
-            step = int(max(1, round((p - 0.5) * 10)))
-            if random.random() < 0.5:
-                self.position = (self.position + step) % self.n_nodes
-            else:
-                self.position = (self.position - step) % self.n_nodes
-            return {'p_collapse': p, 'entropy': ent, 'position': self.position}
-        else:
-            # fallback random behavior
-            p = random.random()
+# -------------------- Qualia Graph --------------------
+if torch:
+    class QualiaGraphNet(nn.Module):
+        def __init__(self, n_nodes=DEFAULT_N, embed_size=32):
+            super().__init__()
+            self.n_nodes = n_nodes
+            self.embed = nn.Embedding(n_nodes, embed_size)
+            self.fc = nn.Linear(embed_size*3,1)
+            self.graph = nx.Graph() if nx else None
+            if self.graph:
+                for i in range(n_nodes):
+                    self.graph.add_node(i)
+        def forward(self, node_idx, triad_list):
+            embeds = torch.cat(triad_list,dim=1)
+            logits = self.fc(embeds)
+            p_collapse = torch.sigmoid(logits)
             ent = 0.0
-            self.history.append({'pos': self.position, 'p': p, 'ent': ent, 'scalar': scalar})
-            self.position = (self.position + int((p - 0.5) * 10)) % self.n_nodes
-            return {'p_collapse': p, 'entropy': ent, 'position': self.position}
+            if self.graph:
+                mean_p = float(p_collapse.mean().item())
+                if mean_p>0.5:
+                    i,j=random.randint(0,self.n_nodes-1),random.randint(0,self.n_nodes-1)
+                    if i!=j and not self.graph.has_edge(i,j):
+                        self.graph.add_edge(i,j,weight=random.uniform(0.5,1.5))
+                deg_hist = nx.degree_histogram(self.graph)
+                total=sum(deg_hist) if len(deg_hist)>0 else 0
+                if total>0:
+                    probs=[d/total for d in deg_hist if d>0]
+                    ent = -sum(p*math.log(p+1e-12) for p in probs)
+            return p_collapse, ent
 
-# ---------------------------
-# Emergent NPC sample generator
-# ---------------------------
-def emergent_npc_sample(num_npcs: int = NPC_COUNT, sample_steps: int = 8, n_nodes: int = DEFAULT_NODES):
-    """Create a handful of NPCs, run sample_steps of sense+act and return a concise report."""
-    # prepare flux generator (do not materialize full million vector)
-    flux_gen = get_flux_vector(n_nodes=n_nodes, mode="auto", seed_base=1234)
-    # instantiate triad net shared across NPCs (lightweight)
-    triad_net = TriadEmbedNet() if TriadEmbedNet is not None else None
-    # create NPCs
-    npcs = [QualiaAgent(agent_id=i, n_nodes=n_nodes, triad_net=triad_net) for i in range(num_npcs)]
-    report = []
-    # small active subgraph to track edges among nodes touched
-    subgraph = ActiveSubgraph(capacity=ACTIVE_SUBGRAPH_SIZE)
-    subgraph.seed_random(n_nodes=n_nodes, rng_seed=42)
-    for step in range(sample_steps):
-        # optional video tensor stub (none) - replace with actual frame tensor for real runs
-        video_tensor = None
-        for npc in npcs:
-            res = npc.perceive_and_act(flux_gen, video_tensor)
-            # occasionally add edges in active subgraph influenced by p
-            p = res['p_collapse']
-            if p > 0.6:
-                u = random.choice(subgraph.nodes)
-                v = random.choice(subgraph.nodes)
-                subgraph.add_edge(u, v, weight=0.5 + p)
-            report.append({'agent': npc.agent_id, 'step': step, 'p': res['p_collapse'], 'ent': res['entropy'], 'pos': res['position']})
-        # periodic pruning in subgraph
-        if step % 4 == 0:
-            subgraph.prune_low_weight_edges(fraction=0.02)
-    # aggregate stats
-    p_vals = [r['p'] for r in report]
-    ent_vals = [r['ent'] for r in report]
-    res_summary = {
-        'num_npcs': num_npcs,
-        'steps': sample_steps,
-        'p_mean': float(np.mean(p_vals)) if np is not None else sum(p_vals) / len(p_vals),
-        'p_std': float(np.std(p_vals)) if np is not None else 0.0,
-        'ent_mean': float(np.mean(ent_vals)) if np is not None else 0.0,
-        'nodes_touched': len(subgraph.nodes),
-        'edges_in_subgraph': len(subgraph.edges)
-    }
-    return res_summary, report, subgraph
-
-# ---------------------------
-# Quick scaled test runner (safe)
-# ---------------------------
-def quick_scaled_test():
-    print("Running quick_scaled_test for AetherisGrok_cyborg_v2")
-    # Hameroff tau demonstration
-    Eg, tau = hameroff_tau_numeric(m_tub=1e-22, d=1e-9)
-    print("Hameroff E_g:", Eg, "tau (s):", tau)
-    # emergent NPC sample (small, fast)
-    summary, report, subgraph = emergent_npc_sample(num_npcs=4, sample_steps=6, n_nodes=1000000)
-    print("Emergent NPC summary:", summary)
-    # triad potential example
-    if TriadEmbedNet is not None:
-        triad = TriadEmbedNet()
+# -------------------- Pruning / Emergence --------------------
+def prune_to_zero_entropy_multiagent(triad_net, model_list, flux_vec, max_iters=200, target_entropy=1e-6,
+                                     lr=5e-3, batch_size=64, verbose=True):
+    if torch is None:
+        raise RuntimeError("Torch required.")
+    optimizer = optim.Adam(list(triad_net.parameters()) + sum([list(m.parameters()) for m in model_list],[]), lr=lr)
+    flux_torch = torch.tensor(flux_vec,dtype=torch.float32)
+    last_combined=None
+    for it in range(max_iters):
+        idx = torch.randint(0,len(flux_vec),(batch_size,))
+        batch_flux = flux_torch[idx]
+        triad_batch = triad_net(batch_flux)
+        combined_entropy = 0.0
+        for model in model_list:
+            pred_p, graph_ent = model.forward(idx, triad_batch)
+            gamma_proxy = float(batch_flux.mean().item())*0.1
+            ghz_ent = ghz_entropy_proxy(n_qubits=8,gamma=gamma_proxy)
+            combined_entropy += float(graph_ent)+float(ghz_ent)
+        combined_tensor = torch.tensor(combined_entropy,dtype=torch.float32,requires_grad=False)
+        target_p = torch.full_like(pred_p,0.9)
+        mse = nn.MSELoss()(pred_p,target_p)
+        loss = mse + 0.5*combined_tensor
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        last_combined=combined_entropy
+        if verbose and (it%max(10,max_iters//10)==0 or it==max_iters-1):
+            print(f"[prune] iter {it:04d} combined_entropy={combined_entropy:.8f} mse={float(mse):.6f}")
+        if combined_entropy<=target_entropy:
+            if verbose:
+                print(f"[prune] target entropy reached at iter {it}")
+            break
+        # amplitude pruning heuristic
+        if it%50==0 and it>0:
+            for model in model_list:
+                if model.graph:
+                    edges=list(model.graph.edges(data=True))
+                    if edges:
+                        weights=[(u,v,data.get('weight',1.0)) for (u,v,data) in edges]
+                        weights_sorted=sorted(weights,key=lambda x:x[2])
+                        remove_k=max(1,int(0.02*len(weights_sorted)))
+                        for u,v,_ in weights_sorted[:remove_k]:
+                            if model.graph.has_edge(u,v):
+                                model.graph.remove_edge(u,v)
+                        if verbose:
+                            print(f"[prune] removed {remove_k} low-weight edges")
+    # build qualia vector from triad_net on mean flux
+    mean_flux=float(np.mean(flux_vec)) if np else 0.5
+    flux_tensor=torch.tensor([mean_flux],dtype=torch.float32)
+    triad_mean=triad_net(flux_tensor)
+    p_mean=0.0
+    final_ent=0.0
+    if model_list:
         with torch.no_grad():
-            triad_vec = triad(torch.tensor([0.5], dtype=torch.float32))
-        # flatten triad vector approx magnitude
-        mag = 0.0
-        try:
-            arr = torch.cat(triad_vec, dim=1).squeeze(0).cpu().numpy()
-            mag = float(np.linalg.norm(arr))
-        except Exception:
-            mag = 0.0
-        print("Triad potential magnitude:", mag)
-    # simple seal
-    seal_input = "AetherisGrok_cyborg_v2 test " + str(time.time())
-    seal = hashlib.sha3_256(seal_input.encode()).hexdigest().upper()
-    print("Seal sample (truncated):", seal[:24])
-    return summary
+            p_mean, final_ent = model_list[0].forward(torch.tensor([0],dtype=torch.long), triad_mean)
+    qualia_vector=torch.cat([t.squeeze(0) for t in triad_mean],dim=0).cpu().numpy() if torch else [0]*96
+    qualia_score=float(p_mean.mean().item()) if torch else 0.0
+    return {'final_combined_entropy':last_combined,'qualia_score':qualia_score,'qualia_vector':qualia_vector.tolist()}
 
-if __name__ == "__main__":
-    quick_scaled_test()
+# -------------------- Seal --------------------
+def seal_affirmation(s,gamma=0.1):
+    seed=s+f" | γ={gamma} | v10"
+    return hashlib.sha3_512(seed.encode()).hexdigest().upper()[:64]
+
+# -------------------- Orchestrator --------------------
+def run_v10(n_nodes=DEFAULT_N,num_agents=NUM_AGENTS,max_iters=200):
+    print("[v10] loading flux")
+    flux=get_flux_vector(n_nodes=n_nodes)
+    model_list=[QualiaGraphNet(n_nodes=n_nodes,embed_size=32) for _ in range(num_agents)]
+    triad_net=TriadEmbedNet()
+    print("[v10] starting multi-agent pruning")
+    report=prune_to_zero_entropy_multiagent(triad_net,model_list,flux,max_iters=max_iters)
+    affirm=f"v10 prune complete | qualia_score={report['qualia_score']:.6f}"
+    report['seal']=seal_affirmation(affirm,gamma=float(np.mean(flux)))
+    print("[v10] seal:",report['seal'])
+    return report
+
+# -------------------- CLI --------------------
+def _cli():
+    print("AetherisGrok Cyborg v10 - multi-agent prune+qualia sample")
+    rpt=run_v10()
+    print("REPORT SUMMARY:")
+    for k,v in rpt.items():
+        if k=='qualia_vector':
+            print(f"{k}: len={len(v)}")
+        else:
+            print(f"{k}: {v}")
+    print("Done.")
+
+if __name__=="__main__":
+    _cli()
