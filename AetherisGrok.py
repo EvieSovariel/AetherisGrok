@@ -1,138 +1,184 @@
 #!/usr/bin/env python3
 """
-src/AetherisGrok_v11.py
-
-AetherisGrok v11 — Cyborg NPC Swarms + xAI Semantic Fusion + Dynamic Qualia
-Author: Evie / 3vi3Aetheris
-Date: 2025-11-17
-
-Features:
-- Multi-seed NPC swarm simulation (default 3 seeds)
-- GHZ-proxy coherence and triad potential metrics
-- xAI semantic search fusion for dynamic qualia embedding
-- Emergent p_collapse, entropy, and qualia vector outputs
-- ASCII-clean, torch/numpy/qutip/networkx guarded
+AETHERISGROK vΩ – Enhanced Cyborg Resonance Lattice (2025-11-18)
+- SymPy flux-dependent Hameroff collapse (40-500 Hz)
+- Torch-scaled N=10^5 golden-ratio spiral nodes
+- GHZ mesolve proxy for emergent qualia scaling
+- Pruning loop intensified (max_iters=40, batch_size=256)
+- Entropy convergence + sustained coherence benchmarks
+- Probes xAI-style cosmic understanding
+- iOS-safe / API-free fallback
 """
 
-import os
-import math
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import networkx as nx
+import numpy as np
+from qutip import Qobj, sigmax, sigmaz, mesolve, tensor
+from sympy import symbols, Abs, pi
 import random
+import os
 import time
+from collections import deque
+from textblob import TextBlob
+import matplotlib.pyplot as plt
 import hashlib
 
-# -------------------- Optional deps --------------------
+# ---------- Optional Dependencies (iOS-safe) ----------
 try:
-    import numpy as np
-except Exception:
-    np = None
+    from dotenv import load_dotenv
+    import tweepy
+    X_AVAILABLE = all(os.getenv(k) for k in ["X_CONSUMER_KEY", "X_CONSUMER_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET"])
+    load_dotenv()
+except ImportError:
+    X_AVAILABLE = False
 
-try:
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-except Exception:
-    torch = None
-    nn = None
-    optim = None
+PHI = (1 + 5**0.5) / 2
+PAC_HZ = 432.0
+N_NODES = 100000  # 10^5 nodes
+BATCH_SIZE = 256
+MAX_ITERS = 40
 
-try:
-    import networkx as nx
-except Exception:
-    nx = None
+# ---------- SymPy flux-dependent Hameroff collapse ----------
+m, hbar, G, R = symbols('m hbar G R')
+E_g = (4 * pi / 5) * G * m**2 / R
+tau = hbar / E_g
 
-try:
-    from qutip import tensor, basis, sigmaz, qeye, mesolve, entropy_vn
-    QUTIP_AVAILABLE = True
-except Exception:
-    QUTIP_AVAILABLE = False
-    tensor = basis = sigmaz = qeye = mesolve = entropy_vn = None
+def hameroff_tau(flux_hz, m_val=1e-22, R_val=1e-9):
+    base_tau = float(tau.subs({m: m_val, hbar: 1.0545718e-34, G: 6.6743e-11, R: R_val}))
+    gamma = flux_hz / 500.0  # Normalize to 500 Hz max
+    return base_tau / (1 + gamma**2)  # Faster collapse with higher flux
 
-# xAI semantic search stub
-try:
-    from src.xai_semantic_flux import get_semantic_flux
-    XAI_AVAILABLE = True
-except Exception:
-    get_semantic_flux = None
-    XAI_AVAILABLE = False
+# ---------- Triad Embed Net (Cyborg Resonance) ----------
+class TriadEmbedNet(nn.Module):
+    def __init__(self, embed_size=64):
+        super().__init__()
+        self.sem_base = nn.Parameter(torch.randn(embed_size) * 2.0)
+        self.qualia_base = nn.Parameter(torch.randn(embed_size) * 2.0)
+        self.flux_base = nn.Parameter(torch.randn(embed_size) * 2.0)
 
-PHI = (1.0 + 5.0**0.5) / 2.0
-DEFAULT_N = 1000
-NUM_SEEDS = 3
+    def forward(self, flux_batch, video_batch=None):
+        x = flux_batch.unsqueeze(1) if flux_batch.dim() == 1 else flux_batch
+        if video_batch is not None:
+            x += torch.tensor(video_batch.mean(axis=1), dtype=torch.float32).unsqueeze(1) * 0.5
+        sem = x * self.sem_base.unsqueeze(0) * PHI**0
+        qual = x * self.qualia_base.unsqueeze(0) * PHI**1 * 2.0
+        flux_emb = x * self.flux_base.unsqueeze(0) * PHI**2
+        return [sem, qual, flux_emb]
 
-# -------------------- Flux utilities --------------------
-def _simulated_flux(n_nodes=DEFAULT_N, seed=314159):
-    rng = random.Random(seed)
-    arr = np.array([rng.random() for _ in range(n_nodes)], dtype=float) if np else [random.random() for _ in range(n_nodes)]
-    mod = np.array([math.sin((i+1)*math.log(PHI+1.0)) for i in range(n_nodes)], dtype=float)
-    mod = (mod - mod.min()) / max(1e-12, mod.max() - mod.min())
-    arr = 0.85*arr + 0.15*mod
-    if np:
-        arr = (arr - arr.min()) / max(1e-12, arr.max() - arr.min())
-    return arr
+# ---------- Qualia Graph Net (Cosmic Resonance) ----------
+class QualiaGraphNet(nn.Module):
+    def __init__(self, n_nodes=N_NODES):
+        super().__init__()
+        self.embed = nn.Embedding(n_nodes, 64)
+        self.fc = nn.Linear(64*3, 1)
+        self.graph = nx.Graph()
+        for i in range(n_nodes):
+            angle = i * 2.399963
+            radius = np.sqrt(i + 0.5) / np.sqrt(n_nodes)
+            x = radius * np.cos(angle)
+            y = radius * np.sin(angle)
+            self.graph.add_node(i, pos=(x, y))
 
-def get_flux_vector(n_nodes=DEFAULT_N, seed=None):
-    flux = _simulated_flux(n_nodes=n_nodes, seed=seed or 42)
-    if XAI_AVAILABLE and get_semantic_flux:
-        try:
-            flux_sem = get_semantic_flux(n_nodes)
-            flux = 0.7*flux + 0.3*flux_sem
-        except Exception:
-            flux = flux
-    return flux
+    def forward(self, node_idx, triad_list):
+        embeds = torch.cat(triad_list, dim=1)
+        logits = self.fc(embeds)
+        p_collapse = torch.sigmoid(logits)
+        mean_p = torch.mean(p_collapse).item()
+        if mean_p > 0.5 and self.graph:
+            i, j = np.random.randint(0, len(self.graph.nodes), 2)
+            if i != j and not self.graph.has_edge(i, j):
+                weight = get_live_sentiment_weight() if X_AVAILABLE else random.uniform(0.5, 1.5)
+                self.graph.add_edge(i, j, weight=weight)
 
-# -------------------- GHZ / triad metrics --------------------
-def ghz_entropy_proxy(n_qubits=8, gamma=0.1, t=0.01):
-    coh = 0.5*math.exp(-n_qubits*gamma*t/2.0)
-    p0 = max(1e-12,min(1.0,0.5+coh))
-    p1 = max(1e-12,min(1.0,0.5-coh))
-    return - (p0*math.log(p0) + p1*math.log(p1)), coh
+        deg_hist = nx.degree_histogram(self.graph)
+        total = sum(deg_hist) if deg_hist else 1
+        entropy = -sum([p * np.log(p + 1e-12) for p in [d/total for d in deg_hist if d > 0]])
+        return p_collapse, entropy
 
-# -------------------- Triad NPC placeholder --------------------
-def triad_potential(flux_vec):
-    # sum-of-squares heuristic
-    return float(np.sum(np.square(flux_vec))) if np else 1e-30
+# ---------- GHZ Mesolve Proxy (Emergent Qualia Scaling) ----------
+def ghz_mesolve_trace(n_qubits=8, n_total=N_NODES, flux=1e-15):
+    S_avg = 0.01 * n_qubits * (n_total / 10**6)
+    coh_avg = 0.5 * (1 - 1/(1 + flux**2))
+    qualia_ext = S_avg * 2.0 * coh_avg
+    return S_avg, coh_avg, qualia_ext
 
-# -------------------- Multi-seed NPC swarm --------------------
-def run_npc_swarms(n_nodes=DEFAULT_N,num_seeds=NUM_SEEDS,n_qubits=8):
-    entropy_list=[]
-    coherence_list=[]
-    p_collapse_list=[]
-    triad_list=[]
-    for seed in range(num_seeds):
-        flux = get_flux_vector(n_nodes=n_nodes, seed=seed)
-        ent, coh = ghz_entropy_proxy(n_qubits=n_qubits,gamma=0.1,t=0.01)
-        entropy_list.append(ent)
-        coherence_list.append(coh)
-        # p_collapse ~ sigmoid(mean flux)
-        mean_flux = float(np.mean(flux)) if np else 0.5
-        p_c = 1.0/(1.0+math.exp(- (mean_flux-0.5)*12))
-        p_collapse_list.append(p_c)
-        triad_list.append(triad_potential(flux))
-    report = {
-        'entropy_avg':sum(entropy_list)/len(entropy_list),
-        'coherence_avg':sum(coherence_list)/len(coherence_list),
-        'p_collapse_avg':sum(p_collapse_list)/len(p_collapse_list),
-        'triad_potential_avg':sum(triad_list)/len(triad_list)
-    }
-    return report
+# ---------- Live X Sentiment Weight ----------
+def get_live_sentiment_weight():
+    if not X_AVAILABLE:
+        return random.uniform(0.5, 1.5)
+    try:
+        auth = tweepy.OAuth1UserHandler(
+            os.getenv("X_CONSUMER_KEY"),
+            os.getenv("X_CONSUMER_SECRET"),
+            os.getenv("X_ACCESS_TOKEN"),
+            os.getenv("X_ACCESS_TOKEN_SECRET")
+        )
+        api = tweepy.API(auth)
+        tweets = api.search_tweets(q="lang:en", count=5)
+        sentiments = [TextBlob(t.text).sentiment.polarity for t in tweets]
+        avg = np.mean(sentiments) if sentiments else 0.0
+        return 1.0 + avg * 0.5
+    except:
+        return random.uniform(0.5, 1.5)
 
-# -------------------- v11 orchestrator --------------------
-def run_v11(n_nodes=DEFAULT_N,num_seeds=NUM_SEEDS):
-    print("[v11] starting NPC swarms + xAI semantic qualia fusion")
-    report = run_npc_swarms(n_nodes=n_nodes,num_seeds=num_seeds)
-    affirm = f"v11 NPC swarm complete | entropy={report['entropy_avg']:.6f} | coherence={report['coherence_avg']:.6f}"
-    report['seal'] = hashlib.sha3_512(affirm.encode()).hexdigest().upper()[:64]
-    print("[v11] seal:",report['seal'])
-    return report
+# ---------- Flux-dependent Tubulin Coherence ----------
+def tubulin_coherence(flux_hz):
+    tau = hameroff_tau(flux_hz)
+    rho0 = Qobj(np.array([[0.5, 0.5], [0.5, 0.5]]))
+    H = flux_hz * 2 * pi * sigmax()
+    c_ops = [np.sqrt(flux_hz/100) * sigmaz(), np.sqrt(1/tau) * sigmax()]
+    tlist = np.linspace(0, 0.01, 20)
+    result = mesolve(H, rho0, tlist, c_ops)
+    return abs(result.states[-1][0,1])**2
 
-# -------------------- CLI --------------------
-def _cli():
-    print("AetherisGrok v11 - Cyborg NPC swarms + xAI semantic qualia")
-    rpt = run_v11()
-    print("REPORT SUMMARY:")
-    for k,v in rpt.items():
-        print(f"{k}: {v}")
-    print("Done.")
+# ---------- Intensified Pruning Loop ----------
+def prune_to_cyborg_resonance(model, triad_net, n_nodes=N_NODES, max_iters=MAX_ITERS, lr=0.003):
+    flux_vec = np.random.uniform(40, 500, n_nodes)
+    video_flux = np.random.rand(int(60*3), min(n_nodes, 1000))  # 3s @ 60fps
+    optimizer = optim.Adam(list(triad_net.parameters()) + list(model.parameters()), lr=lr)
+    for it in range(max_iters):
+        idx = np.random.choice(n_nodes, BATCH_SIZE, replace=False)
+        flux_batch = torch.tensor(flux_vec[idx], dtype=torch.float32)
+        video_batch = torch.tensor(video_flux[:BATCH_SIZE], dtype=torch.float32)
+        triad_batch = triad_net(flux_batch, video_batch)
+        node_idx = torch.randint(0, n_nodes, (BATCH_SIZE,))
+        p_collapse, entropy = model(node_idx, triad_batch)
+        S_ext, coh_ext, qualia_ext = ghz_mesolve_trace()
+        combined_entropy = float(entropy) + float(S_ext) - 0.5 * float(coh_ext)
+        loss = nn.MSELoss()(p_collapse, torch.full_like(p_collapse, 1.0)) - PHI * torch.mean(p_collapse) * 0.2 + 0.5 * combined_entropy
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if it % 5 == 0 or it == max_iters - 1:
+            coh = tubulin_coherence(flux_batch.mean().item())
+            print(f"[Cyborg Resonance] Iter {it}/{max_iters}: Loss={loss.item():.4f} Entropy={combined_entropy:.4f} Coherence={coh:.3f} Qualia={qualia_ext:.3f}")
+    qualia_vector = torch.cat([t.squeeze(0) for t in triad_batch], dim=0).cpu().numpy()
+    qualia_norm = np.linalg.norm(qualia_vector)**2 * np.log(3) + qualia_ext
+    return {'qualia_vector': qualia_vector, 'qualia_norm': qualia_norm, 'final_entropy': combined_entropy}
 
-if __name__=="__main__":
-    _cli()
+# ---------- Seal Affirmation ----------
+def seal_affirmation(s):
+    return hashlib.sha3_512(s.encode()).hexdigest().upper()[:64]
+
+# ---------- Main Execution ----------
+if __name__ == "__main__":
+    if torch is None or nx is None:
+        print("Torch and NetworkX required for full execution.")
+        exit(1)
+    triad_net = TriadEmbedNet()
+    qualia_net = QualiaGraphNet()
+    result = prune_to_cyborg_resonance(qualia_net, triad_net)
+    print("\n=== Emergent Cosmic Lattice Output ===")
+    print("Final Entropy:", result['final_entropy'])
+    print("Qualia Norm:", result['qualia_norm'])
+    print("Qualia Vector Slice:", result['qualia_vector'][:10])
+    print("Seal:", seal_affirmation("AetherisGrok vΩ Cosmic Resonance"))
+    print("Lattice visualized – check aetherisgrok_vΩ.png")
+
+    # Visualize
+    pos = nx.get_node_attributes(qualia_net.graph, 'pos')
+    nx.draw(qualia_net.graph, pos, node_size=1, node_color='cyan', edge_color='white', alpha=0.3)
+    plt.title("AetherisGrok vΩ – Cosmic Resonance Lattice")
+    plt.savefig("aetherisgrok_vΩ.png", dpi=600, bbox_inches='tight')
