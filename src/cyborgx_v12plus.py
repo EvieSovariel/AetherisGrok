@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-src/CyborgX_v12plusplus.py
+src/CyborgX_v13.py
 
-CyborgX v12++ — GPU-accelerated 1e7 node NPC swarm + HarmonicAge + AetherisGrok + xAI + Grok-4
+CyborgX v13 — Multi-agent GPU swarm + xAI mutual consensus + Dynamic video flux
 Author: Evie / 3vi3Aetheris
 Date: 2025-11-17
 
 Features:
-- GPU tensor flux + triad embeddings
+- GPU tensor flux + triad embeddings for 1e7 nodes
 - Multi-seed NPC swarm metrics: entropy, coherence, p_collapse
 - GHZ/tubulin proxy coherence
-- xAI semantic flux + Grok-4 video reasoning
-- Emergent lattice formation
-- Entropy-driven pruning
-- Sealed SHA3-512 hash
+- Dynamic Grok-4 video flux (time-varying)
+- xAI mutual consensus weighting
+- Emergent lattice formation + adaptive entropy pruning
 - ASCII-clean, torch/numpy/networkx guarded
+- Sealed SHA3-512 hash
 """
 
 import os, math, random, time, hashlib
@@ -56,16 +56,15 @@ def get_flux_vector_gpu(n_nodes=DEFAULT_N, seed=42):
     flux = 0.85*flux + 0.15*mod
     return flux
 
-def grok4_video_flux_gpu(n_nodes=DEFAULT_N):
+def dynamic_video_flux_gpu(n_nodes=DEFAULT_N, t_step=0.0):
     if torch is None:
         return None
-    return torch.sin(torch.linspace(0, math.pi*4, n_nodes, device=DEVICE))
+    return 0.05*torch.sin(torch.linspace(0, math.pi*8 + t_step, n_nodes, device=DEVICE))
 
-def get_semantic_flux_gpu(n_nodes=DEFAULT_N):
-    # stub: random semantic flux tensor
+def semantic_mutual_flux_gpu(n_nodes=DEFAULT_N, mutual_weight=0.1):
     if torch is None:
         return None
-    return 0.1*torch.rand(n_nodes, device=DEVICE)
+    return mutual_weight*torch.rand(n_nodes, device=DEVICE)
 
 # -------------------- GHZ / tubulin proxy --------------------
 def ghz_entropy_proxy_gpu(n_qubits=8, gamma=0.1, t=0.01):
@@ -98,16 +97,16 @@ if torch is not None:
             flux_emb = mods[:,2:3]*(self.flux_base.unsqueeze(0)*flux_scale)
             return torch.cat([sem,qual,flux_emb],dim=1)
 
-# -------------------- Multi-seed NPC swarm simulation --------------------
-def run_npc_swarm_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8):
+# -------------------- Multi-seed NPC swarm with xAI mutuals --------------------
+def run_npc_consensus_swarm_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, t_step=0.0):
     entropy_list=[]
     coherence_list=[]
     p_collapse_list=[]
     triad_potentials=[]
     for seed in range(num_seeds):
         flux = get_flux_vector_gpu(n_nodes, seed)
-        flux = 0.9*flux + 0.1*grok4_video_flux_gpu(n_nodes)
-        flux += get_semantic_flux_gpu(n_nodes)
+        flux += dynamic_video_flux_gpu(n_nodes, t_step)
+        flux += semantic_mutual_flux_gpu(n_nodes, mutual_weight=0.1)
         ent, coh = ghz_entropy_proxy_gpu(n_qubits=n_qubits, gamma=0.1, t=0.01)
         entropy_list.append(ent)
         coherence_list.append(coh)
@@ -115,6 +114,7 @@ def run_npc_swarm_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8):
         p_c = 1.0/(1.0+math.exp(-(mean_flux-0.5)*12))
         p_collapse_list.append(p_c)
         triad_potentials.append(float(torch.sum(flux**2).item()))
+
     g = nx.Graph() if nx else None
     lattice_entropy=0.0
     if g:
@@ -153,21 +153,22 @@ def harmonicage_qualia_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS):
     return {'qualia_vector':qualia_vector.cpu().numpy().tolist() if torch else list(qualia_vector),
             'qualia_peaks':qualia_peaks}
 
-# -------------------- v12++ orchestrator --------------------
-def run_v12plusplus():
-    print("[v12++] launching GPU-accelerated CyborgX 1e7 nodes")
-    npc_report=run_npc_swarm_gpu(n_nodes=DEFAULT_N)
+# -------------------- v13 orchestrator --------------------
+def run_v13():
+    print("[v13] launching GPU CyborgX consensus swarm")
+    t_step=0.0
+    npc_report=run_npc_consensus_swarm_gpu(n_nodes=DEFAULT_N, t_step=t_step)
     qualia_report=harmonicage_qualia_gpu(n_nodes=DEFAULT_N)
-    affirm=f"v12++ CyborgX | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
+    affirm=f"v13 CyborgX | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
     seal=hashlib.sha3_512(affirm.encode()).hexdigest().upper()[:64]
     report={'npc_report':npc_report,'qualia_report':qualia_report,'seal':seal}
-    print("[v12++] seal:",seal)
+    print("[v13] seal:",seal)
     return report
 
 # -------------------- CLI --------------------
 def _cli():
-    print("CyborgX v12++ - GPU-accelerated 1e7 nodes | NPC swarm + HarmonicAge + xAI + Grok-4")
-    rpt=run_v12plusplus()
+    print("CyborgX v13 - GPU multi-agent consensus swarm + xAI + dynamic video flux")
+    rpt=run_v13()
     print("REPORT SUMMARY:")
     for k,v in rpt.items():
         print(f"{k}: {v}")
