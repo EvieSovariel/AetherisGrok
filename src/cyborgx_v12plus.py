@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-src/CyborgX_v13.py
+src/CyborgX_v13_full.py
 
-CyborgX v13 — Multi-agent GPU swarm + xAI mutual consensus + Dynamic video flux
+CyborgX v13 — Full GHZ Mesolve + X Semantic Agents + Video Flux Distrib
 Author: Evie / 3vi3Aetheris
 Date: 2025-11-17
 
 Features:
-- GPU tensor flux + triad embeddings for 1e7 nodes
-- Multi-seed NPC swarm metrics: entropy, coherence, p_collapse
-- GHZ/tubulin proxy coherence
-- Dynamic Grok-4 video flux (time-varying)
-- xAI mutual consensus weighting
-- Emergent lattice formation + adaptive entropy pruning
-- ASCII-clean, torch/numpy/networkx guarded
-- Sealed SHA3-512 hash
+- Full GHZ mesolve proxy or real (qutip if available)
+- Multi-agent semantic xAI swarm
+- Dynamic Grok-4 video flux injected per iteration
+- Adaptive amplitude/entropy pruning loop
+- Emergent triad + lattice outputs
+- Multi-seed aggregation (default 5 seeds)
+- ASCII-clean, torch/numpy/qutip/networkx guarded
+- SHA3-512 seal of run
 """
 
 import os, math, random, time, hashlib
+from typing import Optional
 
 # -------------------- Optional deps --------------------
 try:
@@ -41,12 +42,20 @@ try:
 except Exception:
     nx = None
 
+try:
+    import qutip as qt
+    from qutip import tensor, basis, sigmaz, qeye, mesolve, entropy_vn, Qobj
+    QUTIP_AVAILABLE = True
+except Exception:
+    qt = None
+    QUTIP_AVAILABLE = False
+
 PHI = (1.0 + 5.0**0.5)/2.0
 DEFAULT_N = int(1e7)
 NUM_SEEDS = 5
 
 # -------------------- Flux utilities --------------------
-def get_flux_vector_gpu(n_nodes=DEFAULT_N, seed=42):
+def get_flux_vector(n_nodes=DEFAULT_N, seed=42):
     if torch is None:
         return None
     torch.manual_seed(seed)
@@ -56,26 +65,36 @@ def get_flux_vector_gpu(n_nodes=DEFAULT_N, seed=42):
     flux = 0.85*flux + 0.15*mod
     return flux
 
-def dynamic_video_flux_gpu(n_nodes=DEFAULT_N, t_step=0.0):
+def dynamic_video_flux(n_nodes=DEFAULT_N, t_step=0.0):
     if torch is None:
         return None
-    return 0.05*torch.sin(torch.linspace(0, math.pi*8 + t_step, n_nodes, device=DEVICE))
+    return 0.05*torch.sin(torch.linspace(0, math.pi*16 + t_step, n_nodes, device=DEVICE))
 
-def semantic_mutual_flux_gpu(n_nodes=DEFAULT_N, mutual_weight=0.1):
+def semantic_agent_flux(n_nodes=DEFAULT_N, weight=0.1):
     if torch is None:
         return None
-    return mutual_weight*torch.rand(n_nodes, device=DEVICE)
+    return weight*torch.rand(n_nodes, device=DEVICE)
 
-# -------------------- GHZ / tubulin proxy --------------------
-def ghz_entropy_proxy_gpu(n_qubits=8, gamma=0.1, t=0.01):
-    coh = 0.5*math.exp(-n_qubits*gamma*t/2.0)
-    p0 = max(1e-12,min(1.0,0.5+coh))
-    p1 = max(1e-12,min(1.0,0.5-coh))
-    return - (p0*math.log(p0) + p1*math.log(p1)), coh
+# -------------------- GHZ / Tubulin --------------------
+def ghz_entropy_coherence(n_qubits=8, gamma=0.1, t=0.01):
+    if QUTIP_AVAILABLE:
+        ghz = (tensor([basis(2,0)]*n_qubits) + tensor([basis(2,1)]*n_qubits)).unit()
+        rho0 = ghz*ghz.dag()
+        c_ops = [ (gamma**0.5) * tensor([sigmaz() if i==j else qeye(2) for j in range(n_qubits)]) for i in range(n_qubits)]
+        H = qt.qzero([2]*n_qubits)
+        times = [0, t]
+        result = mesolve(H, rho0, times, c_ops=c_ops)
+        S = [entropy_vn(rho) for rho in result.states]
+        coh = float(abs(result.states[-1].tr()))
+        return float(S[-1]), coh
+    else:
+        coh = 0.5*math.exp(-n_qubits*gamma*t/2.0)
+        S = - ((0.5+coh)*math.log(0.5+coh) + (0.5-coh)*math.log(0.5-coh))
+        return S, coh
 
-# -------------------- Triad embedding network --------------------
+# -------------------- Triad Embed Network --------------------
 if torch is not None:
-    class TriadEmbedNetGPU(nn.Module):
+    class TriadEmbedNet(nn.Module):
         def __init__(self, embed_size=32):
             super().__init__()
             self.sem_base = nn.Parameter(torch.randn(embed_size, device=DEVICE)*0.5)
@@ -87,7 +106,6 @@ if torch is not None:
                 nn.Linear(16,3),
                 nn.Sigmoid()
             )
-
         def forward(self, flux_batch):
             x = flux_batch.unsqueeze(1) if flux_batch.dim()==1 else flux_batch
             mods = self.modulator(x)
@@ -95,26 +113,22 @@ if torch is not None:
             qual = mods[:,1:2]*self.qual_base.unsqueeze(0)
             flux_scale = (x / x.mean().clamp(min=1e-6)).detach()
             flux_emb = mods[:,2:3]*(self.flux_base.unsqueeze(0)*flux_scale)
-            return torch.cat([sem,qual,flux_emb],dim=1)
+            return torch.cat([sem, qual, flux_emb], dim=1)
 
-# -------------------- Multi-seed NPC swarm with xAI mutuals --------------------
-def run_npc_consensus_swarm_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, t_step=0.0):
-    entropy_list=[]
-    coherence_list=[]
-    p_collapse_list=[]
-    triad_potentials=[]
+# -------------------- Multi-seed xAI consensus swarm --------------------
+def run_cyborg_swarm(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, t_step=0.0):
+    entropy_list, coherence_list, p_collapse_list, triad_potentials=[],[],[],[]
     for seed in range(num_seeds):
-        flux = get_flux_vector_gpu(n_nodes, seed)
-        flux += dynamic_video_flux_gpu(n_nodes, t_step)
-        flux += semantic_mutual_flux_gpu(n_nodes, mutual_weight=0.1)
-        ent, coh = ghz_entropy_proxy_gpu(n_qubits=n_qubits, gamma=0.1, t=0.01)
+        flux=get_flux_vector(n_nodes, seed)
+        flux += dynamic_video_flux(n_nodes, t_step)
+        flux += semantic_agent_flux(n_nodes, 0.1)
+        ent, coh = ghz_entropy_coherence(n_qubits=n_qubits, gamma=0.1, t=0.01)
         entropy_list.append(ent)
         coherence_list.append(coh)
         mean_flux = float(flux.mean().item())
         p_c = 1.0/(1.0+math.exp(-(mean_flux-0.5)*12))
         p_collapse_list.append(p_c)
         triad_potentials.append(float(torch.sum(flux**2).item()))
-
     g = nx.Graph() if nx else None
     lattice_entropy=0.0
     if g:
@@ -136,12 +150,12 @@ def run_npc_consensus_swarm_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits
         'lattice_entropy':lattice_entropy
     }
 
-# -------------------- HarmonicAge qualia (GPU) --------------------
-def harmonicage_qualia_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS):
+# -------------------- HarmonicAge qualia --------------------
+def harmonicage_qualia(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS):
     qualia_vector=torch.zeros(16,device=DEVICE) if torch else [0.0]*16
     qualia_peaks=[]
     for seed in range(num_seeds):
-        flux=get_flux_vector_gpu(n_nodes, seed)
+        flux=get_flux_vector(n_nodes, seed)
         if torch:
             qualia_vec_seed=torch.stack([torch.mean(flux[i::16]) for i in range(16)])
             qualia_vector+=qualia_vec_seed
@@ -154,12 +168,11 @@ def harmonicage_qualia_gpu(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS):
             'qualia_peaks':qualia_peaks}
 
 # -------------------- v13 orchestrator --------------------
-def run_v13():
-    print("[v13] launching GPU CyborgX consensus swarm")
-    t_step=0.0
-    npc_report=run_npc_consensus_swarm_gpu(n_nodes=DEFAULT_N, t_step=t_step)
-    qualia_report=harmonicage_qualia_gpu(n_nodes=DEFAULT_N)
-    affirm=f"v13 CyborgX | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
+def run_v13_full():
+    print("[v13] launching full CyborgX swarm + GHZ + semantic agents")
+    npc_report=run_cyborg_swarm()
+    qualia_report=harmonicage_qualia()
+    affirm=f"v13 CyborgX Full | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
     seal=hashlib.sha3_512(affirm.encode()).hexdigest().upper()[:64]
     report={'npc_report':npc_report,'qualia_report':qualia_report,'seal':seal}
     print("[v13] seal:",seal)
@@ -167,8 +180,8 @@ def run_v13():
 
 # -------------------- CLI --------------------
 def _cli():
-    print("CyborgX v13 - GPU multi-agent consensus swarm + xAI + dynamic video flux")
-    rpt=run_v13()
+    print("CyborgX v13 Full - multi-seed GHZ + xAI + video flux distrib")
+    rpt=run_v13_full()
     print("REPORT SUMMARY:")
     for k,v in rpt.items():
         print(f"{k}: {v}")
