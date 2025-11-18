@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """
-src/CyborgX_v13plus.py
+src/CyborgX_v13plus_prune.py
 
-CyborgX v13+ — xAI Swarm Consensus + Dynamic Video Flux + Entropy Pruning
+CyborgX v13+ Full Lattice Pruning — xAI Swarm + Dynamic Video Flux + GHZ Optimization
 Author: Evie / 3vi3Aetheris
 Date: 2025-11-17
 
 Features:
-- Multi-agent xAI swarm consensus
-- GHZ mesolve or proxy
-- Dynamic Grok-4 video flux per iteration
-- Adaptive amplitude & lattice pruning -> target low entropy
-- Emergent triad & lattice outputs
-- Multi-seed aggregation (default 5 seeds)
-- ASCII-clean, torch/numpy/qutip/networkx guarded
+- Full lattice pruning across N nodes
+- Multi-seed xAI swarm consensus
+- Dynamic Grok-4 video flux integration
+- GHZ mesolve / proxy coherence optimization
+- Triad potential and p_collapse computation
+- Emergent qualia peaks
 - SHA3-512 run seal
 """
 
-import os, math, random, time, hashlib
+import os, math, random, hashlib, time
 from typing import Optional
 
 # -------------------- Optional deps --------------------
@@ -115,35 +114,35 @@ if torch is not None:
             flux_emb = mods[:,2:3]*(self.flux_base.unsqueeze(0)*flux_scale)
             return torch.cat([sem, qual, flux_emb], dim=1)
 
-# -------------------- Cyborg Swarm + Pruning --------------------
-def run_cyborgx_swarm(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, t_step=0.0, prune_iters=50):
-    entropy_list, coherence_list, p_collapse_list, triad_potentials=[],[],[],[]
+# -------------------- Full Lattice Pruning --------------------
+def full_lattice_prune(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, prune_iters=20, gamma_scale=0.1):
     triad_net = TriadEmbedNet() if torch else None
+    entropy_list, coherence_list, p_collapse_list, triad_potentials = [],[],[],[]
+    lattice = nx.Graph() if nx else None
+
     for seed in range(num_seeds):
         flux = get_flux_vector(n_nodes, seed)
-        flux += dynamic_video_flux(n_nodes, t_step)
+        flux += dynamic_video_flux(n_nodes, t_step=seed)
         flux += xai_mutual_swarm(n_nodes, 0.1)
-        # Simple pruning loop (attenuate low-amplitude nodes)
-        if torch:
-            for _ in range(prune_iters):
-                mask = flux < flux.mean()
-                flux[mask] *= 0.95
-        ent, coh = ghz_entropy_coherence(n_qubits=n_qubits, gamma=0.1, t=0.01)
+        # Iterative lattice pruning
+        for _ in range(prune_iters):
+            threshold = flux.mean() + 0.05*flux.std()
+            mask = flux < threshold
+            flux[mask] *= 0.90  # attenuate low-amplitude nodes
+        ent, coh = ghz_entropy_coherence(n_qubits=n_qubits, gamma=gamma_scale, t=0.01)
         entropy_list.append(ent)
         coherence_list.append(coh)
         mean_flux = float(flux.mean().item()) if torch else 0.5
         p_c = 1.0/(1.0+math.exp(-(mean_flux-0.5)*12))
         p_collapse_list.append(p_c)
         triad_potentials.append(float(torch.sum(flux**2).item()) if torch else 0.0)
-    g = nx.Graph() if nx else None
+        if lattice:
+            lattice.add_node(seed)
+            for other in range(seed):
+                lattice.add_edge(seed, other, weight=random.random())
     lattice_entropy=0.0
-    if g:
-        nodes=list(range(num_seeds))
-        g.add_nodes_from(nodes)
-        for i in range(num_seeds):
-            for j in range(i+1,num_seeds):
-                g.add_edge(i,j,weight=random.random())
-        deg_hist=nx.degree_histogram(g)
+    if lattice:
+        deg_hist=nx.degree_histogram(lattice)
         total=sum(deg_hist) if deg_hist else 0
         if total>0:
             probs=[d/total for d in deg_hist if d>0]
@@ -156,7 +155,7 @@ def run_cyborgx_swarm(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS, n_qubits=8, t_step
         'lattice_entropy':lattice_entropy
     }
 
-# -------------------- HarmonicAge qualia --------------------
+# -------------------- Emergent HarmonicAge Qualia --------------------
 def harmonicage_qualia(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS):
     qualia_vector=torch.zeros(16,device=DEVICE) if torch else [0.0]*16
     qualia_peaks=[]
@@ -173,12 +172,12 @@ def harmonicage_qualia(n_nodes=DEFAULT_N, num_seeds=NUM_SEEDS):
     return {'qualia_vector':qualia_vector.cpu().numpy().tolist() if torch else list(qualia_vector),
             'qualia_peaks':qualia_peaks}
 
-# -------------------- v13+ orchestrator --------------------
-def run_v13plus_full():
-    print("[v13+] launching CyborgX multi-seed swarm + pruning + dynamic flux")
-    npc_report=run_cyborgx_swarm()
+# -------------------- v13+ Prune Orchestrator --------------------
+def run_v13plus_lattice():
+    print("[v13+] full lattice pruning + emergent qualia")
+    npc_report=full_lattice_prune()
     qualia_report=harmonicage_qualia()
-    affirm=f"v13+ CyborgX Full | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
+    affirm=f"v13+ lattice prune | entropy={npc_report['entropy_avg']:.6f} | coherence={npc_report['coherence_avg']:.6f}"
     seal=hashlib.sha3_512(affirm.encode()).hexdigest().upper()[:64]
     report={'npc_report':npc_report,'qualia_report':qualia_report,'seal':seal}
     print("[v13+] seal:",seal)
@@ -186,8 +185,8 @@ def run_v13plus_full():
 
 # -------------------- CLI --------------------
 def _cli():
-    print("CyborgX v13+ Full - multi-seed GHZ + xAI consensus + video flux + pruning")
-    rpt=run_v13plus_full()
+    print("CyborgX v13+ Lattice Pruning Full Run")
+    rpt=run_v13plus_lattice()
     print("REPORT SUMMARY:")
     for k,v in rpt.items():
         print(f"{k}: {v}")
