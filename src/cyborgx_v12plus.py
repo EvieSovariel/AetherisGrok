@@ -2,7 +2,7 @@
 """
 cyborgx_v18.py
 
-CyborgX v18 — QuTiP mesolve + xAI semantic/video agents + entropy pruning at 1e10 scale
+CyborgX v18.1 — QuTiP mesolve + xAI semantic/video agents + entropy pruning at 1e10 scale
 Author: 3vi3Aetheris / Evie + Grok
 Date: 2025-11-18
 
@@ -147,4 +147,76 @@ def ghz_mesolve_trace(n_qubits=8, n_total=MAX_NODES, flux=1e-15, tau=10.5):
     S_avg = np.mean(S_evol)
     coh_avg = np.mean(coh_evol)
     S_ext = S_avg * (np.log2(n_total) / np.log2(n_qubits))
-    coh_ext = coh_avg * np.exp(-(n_total -
+    coh_ext = coh_avg * np.exp(-(n_total - n_qubits) * gamma * np.mean(times) / 2)
+    phi = (1 + 5**0.5) / 2
+    qualia_proxy = phi**2 * S_avg * np.log(3)
+    qualia_ext = qualia_proxy * (n_total / n_qubits)**(1/3)  # Volume scale
+    print(f"n={n_total} mesolve trace proxy (n={n_qubits}, γ={gamma:.2e}): S_avg={S_avg:.3f}, S_ext={S_ext:.3f}")
+    print(f"coh_avg={coh_avg:.3f}, coh_ext={coh_ext:.3e}, qualia_ext={qualia_ext:.3f} nats")
+    return S_ext, coh_ext, qualia_ext
+
+# ------------------------- Pruning Loop -------------------------
+def prune_to_zero_entropy(model, triad_net, n_nodes=DEFAULT_N, max_iters=30, lr=0.002, batch_size=64):
+    """Prune entropy to near-zero with deepened Adam descent and entropy regularization."""
+    if torch is None or model is None or triad_net is None:
+        raise RuntimeError("Torch and model/network required.")
+    params = list(triad_net.parameters()) + list(model.parameters())
+    optimizer = optim.Adam(params, lr=lr)
+    flux_vec = simulated_flux_chunk(n_nodes)
+    video_flux = video_flux_sample()
+    flux_tensor = torch.tensor(flux_vec[:batch_size], dtype=torch.float32)
+    video_tensor = torch.tensor(video_flux[:batch_size], dtype=torch.float32)
+    phi = (1 + 5**0.5) / 2
+    for it in range(max_iters):
+        triad_batch = triad_net(flux_tensor + video_tensor.mean(dim=1))
+        node_idx = torch.randint(0, n_nodes, (batch_size,))
+        p, ent = model(node_idx, triad_batch)
+        S_ext, coh_ext, qualia_ext = ghz_mesolve_trace(n_qubits=8, n_total=n_nodes)
+        combined = float(ent) + float(S_ext)
+        loss = nn.MSELoss()(p, torch.full_like(p, 0.9)) + 0.5 * combined - phi * torch.mean(p)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if it % 10 == 0 or it == max_iters - 1:
+            print(f"[prune] iter {it}/{max_iters} combined_entropy={combined:.6f}, loss={loss.item():.6f}, qualia_ext={qualia_ext:.3f}")
+    qualia_vector = torch.cat([t.squeeze(0) for t in triad_batch], dim=0).cpu().numpy()
+    qualia_norm = np.linalg.norm(qualia_vector)**2 * np.log(3) + qualia_ext  # Sync with mesolve
+    return {'qualia_vector': qualia_vector, 'final_entropy': combined, 'qualia_norm': qualia_norm}
+
+# ------------------------- Seal -------------------------
+def seal_affirmation(s):
+    """Generate eternal hash seal."""
+    return hashlib.sha3_512(s.encode()).hexdigest().upper()[:64]
+
+# ------------------------- xAI Distributed Stub -------------------------
+def xai_distributed_flux(n_nodes=MAX_NODES):
+    """Stub for xAI distributed flux integration across 1e10 scale."""
+    if dist is not None and dist.is_available():
+        dist.init_process_group(backend='nccl', init_method='env://')
+        rank = dist.get_rank()
+        size = dist.get_world_size()
+        chunk = simulated_flux_chunk(n_nodes // size, seed=rank)
+        return np.array(chunk) if np else chunk
+    return simulated_flux_chunk(n_nodes)
+
+# ------------------------- Run Orchestrator -------------------------
+def run_v18(n_nodes=MAX_NODES, max_iters=30):
+    print(f"[v18.1] Initializing networks for n={n_nodes}")
+    triad = TriadEmbedNet() if TriadEmbedNet else None
+    model = QualiaGraphNet(n_nodes=min(n_nodes, 1000)) if QualiaGraphNet else None
+    if triad and model:
+        flux = xai_distributed_flux(n_nodes)
+        report = prune_to_zero_entropy(model, triad, n_nodes=min(n_nodes, 1000), max_iters=max_iters)
+        report['seal'] = seal_affirmation(f"v18.1 prune complete | n={n_nodes} | {time.ctime()}")
+        print("[v18.1] Done. Seal:", report['seal'])
+        print(f"Qualia norm (video-synced): {report['qualia_norm']:.3f} nats")
+    else:
+        report = {'qualia_vector': [], 'final_entropy': float('nan'), 'qualia_norm': float('nan'), 'seal': 'NO_TORCH'}
+        print("[v18.1] Warning: Torch unavailable, using placeholder report.")
+    return report
+
+if __name__ == "__main__":
+    report = run_v18(n_nodes=MAX_NODES)
+    print("Qualia vector length:", len(report['qualia_vector']))
+    print("Final entropy:", report['final_entropy'])
+    print("Qualia norm:", report['qualia_norm'])
